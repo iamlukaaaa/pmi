@@ -1,7 +1,7 @@
 from playwright.sync_api import sync_playwright
 from datetime import datetime, timedelta
 import csv
-
+import os
 
 # =========================
 # 1. 날짜 세팅
@@ -14,7 +14,6 @@ previous_month = (
     today.replace(day=1) - timedelta(days=1)
 ).strftime("%B").lower()
 
-
 timestamp = datetime.now().strftime("%Y%m%d_%H%M")
 
 
@@ -23,75 +22,71 @@ def make_url(report_type, month):
 
 
 # =========================
-# 2. 크롤링 시작
+# 2. 크롤링 함수
+# =========================
+def scrape_report(page, report_type, month):
+
+    url = make_url(report_type, month)
+
+    print("접속 URL:", url)
+
+    page.goto(url, wait_until="domcontentloaded")
+    page.wait_for_timeout(5000)
+
+    body_text = page.locator("body").inner_text()
+
+    used_month = month
+
+    if "The content you are looking for is no longer available." in body_text:
+
+        fallback_month = previous_month
+
+        url = make_url(report_type, fallback_month)
+
+        print(f"{report_type} {month} 없음 → 지난달 이동:", url)
+
+        page.goto(url, wait_until="domcontentloaded")
+        page.wait_for_timeout(5000)
+
+        used_month = fallback_month
+
+    # respondents
+    li_items = page.locator("#respondentsSay + ul li").all_inner_texts()
+
+    # table
+    rows = page.locator(
+        "table.table-bordered.table-hover.table-responsive.mb-4 tbody tr"
+    )
+
+    table_data = []
+
+    for i in range(rows.count()):
+        cells = rows.nth(i).locator("th, td").all_inner_texts()
+        table_data.append(cells)
+
+    return {
+        "month": used_month,
+        "respondents": li_items,
+        "table": table_data
+    }
+
+
+# =========================
+# 3. 실행
 # =========================
 with sync_playwright() as p:
 
     browser = p.chromium.launch(headless=True)
     page = browser.new_page()
 
-
-    # =====================================================
-    # PMI 먼저 실행 (여기서 기준 month 결정)
-    # =====================================================
-    def scrape_report(report_type, month):
-
-        url = make_url(report_type, month)
-
-        print("접속 URL:", url)
-
-        page.goto(url)
-        page.wait_for_timeout(5000)
-
-        body_text = page.locator("body").inner_text()
-
-        used_month = month
-
-        if "The content you are looking for is no longer available." in body_text:
-
-            fallback_month = previous_month
-
-            url = make_url(report_type, fallback_month)
-
-            print(f"{report_type} {month} 없음 → 지난달 이동:", url)
-
-            page.goto(url)
-            page.wait_for_timeout(5000)
-
-            used_month = fallback_month
-
-        # respondents
-        li_items = page.locator("#respondentsSay + ul li").all_inner_texts()
-
-        # table
-        rows = page.locator(
-            "table.table-bordered.table-hover.table-responsive.mb-4 tbody tr"
-        )
-
-        table_data = []
-
-        for i in range(rows.count()):
-            cells = rows.nth(i).locator("th, td").all_inner_texts()
-            table_data.append(cells)
-
-        return {
-            "month": used_month,
-            "respondents": li_items,
-            "table": table_data
-        }
-
-
-    # =========================
     # PMI 먼저 실행
-    # =========================
-    pmi_data = scrape_report("pmi", current_month)
+    pmi_data = scrape_report(page, "pmi", current_month)
 
-    # ⭐ 핵심: SERVICES는 PMI에서 결정된 월을 그대로 사용
-    services_data = scrape_report("services", pmi_data["month"])
-
+    # SERVICES는 PMI 기준 월 사용
+    services_data = scrape_report(page, "services", pmi_data["month"])
 
     # =========================
-    # CSV 저장
+    # 4. CSV 저장
     # =========================
     filename = f"ism_reports_{pmi_data['month']}_{timestamp}.csv"
 
@@ -99,10 +94,7 @@ with sync_playwright() as p:
 
         writer = csv.writer(f)
 
-
-        # =========================
-        # PMI
-        # =========================
+        # ===== PMI =====
         writer.writerow(["===== PMI REPORT ====="])
         writer.writerow(["WHAT RESPONDENTS ARE SAYING"])
 
@@ -123,14 +115,10 @@ with sync_playwright() as p:
 
         writer.writerows(pmi_data["table"])
 
-
         writer.writerow([])
         writer.writerow([])
 
-
-        # =========================
-        # SERVICES
-        # =========================
+        # ===== SERVICES =====
         writer.writerow(["===== SERVICES REPORT ====="])
         writer.writerow(["WHAT RESPONDENTS ARE SAYING"])
 
@@ -151,7 +139,16 @@ with sync_playwright() as p:
 
         writer.writerows(services_data["table"])
 
-
     print(f"\nCSV 저장 완료: {filename}")
+
+    # =========================
+    # 5. GitHub 자동 push
+    # =========================
+    os.system("git config --global user.name 'github-actions'")
+    os.system("git config --global user.email 'github-actions@github.com'")
+
+    os.system("git add .")
+    os.system(f"git commit -m 'Add PMI report {timestamp}'")
+    os.system("git push")
 
     browser.close()
