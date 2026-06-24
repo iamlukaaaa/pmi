@@ -8,23 +8,19 @@ from google.oauth2.service_account import Credentials
 
 
 # =========================
-# 1. 날짜 세팅
+# 1. URL 생성
 # =========================
-today = datetime.now()
-
-current_month = today.strftime("%B").lower()
-
-previous_month = (
-    today.replace(day=1) - timedelta(days=1)
-).strftime("%B").lower()
-
-
-def make_url(month):
+def make_url(dt):
+    month = dt.strftime("%B").lower()
     return (
         "https://www.ismworld.org/"
         "supply-management-news-and-reports/"
         f"reports/ism-pmi-reports/services/{month}/"
     )
+
+
+def get_previous_month(dt):
+    return dt.replace(day=1) - timedelta(days=1)
 
 
 # =========================
@@ -39,9 +35,12 @@ with sync_playwright() as p:
 
     page = browser.new_page()
 
-    def scrape_report(month):
+    def scrape_report():
 
-        url = make_url(month)
+        current_dt = datetime.now().replace(day=1)
+
+        # 1차 시도
+        url = make_url(current_dt)
         print("접속 URL:", url)
 
         page.goto(url)
@@ -49,18 +48,20 @@ with sync_playwright() as p:
 
         body_text = page.locator("body").inner_text()
 
-        used_month = month
-
+        # fallback 처리
         if "The content you are looking for is no longer available." in body_text:
-            fallback_month = previous_month
+            print("fallback 발생 → 이전 달로 이동")
 
-            url = make_url(fallback_month)
-            print("fallback →", url)
+            current_dt = get_previous_month(current_dt)
+
+            url = make_url(current_dt)
+            print("fallback URL:", url)
 
             page.goto(url)
             page.wait_for_timeout(5000)
 
-            used_month = fallback_month
+        used_month = current_dt.strftime("%B").capitalize()
+        used_year = current_dt.year
 
         respondents = page.locator("#respondentsSay + ul li").all_inner_texts()
 
@@ -74,14 +75,14 @@ with sync_playwright() as p:
             table_data.append(cells)
 
         return {
+            "year": used_year,
             "month": used_month,
             "respondents": respondents,
             "table": table_data
         }
 
     # SERVICES 실행
-    services_data = scrape_report(current_month)
-    final_month = services_data["month"]
+    services_data = scrape_report()
 
     # =========================
     # Google Sheets
@@ -115,7 +116,8 @@ with sync_playwright() as p:
         rows_to_append.append([
             row[0],
             row[1],
-            final_month.capitalize()
+            services_data["year"],
+            services_data["month"]
         ])
 
     sheet.append_rows(rows_to_append, value_input_option="RAW")
