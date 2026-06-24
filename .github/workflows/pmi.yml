@@ -34,7 +34,7 @@ jobs:
       - name: Run scraper
         env:
           google: ${{ secrets.google }}
-        run: python pmi_services.py
+        run: python pmi.py
 
       # =========================
       # Commit 결과
