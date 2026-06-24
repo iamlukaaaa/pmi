@@ -1,14 +1,15 @@
 from playwright.sync_api import sync_playwright
 from datetime import datetime, timedelta
-import json
+import csv
 import os
+import json
 
 import gspread
 from google.oauth2.service_account import Credentials
 
 
 # =========================
-# 날짜 세팅
+# 1. 날짜 세팅
 # =========================
 
 today = datetime.now()
@@ -23,11 +24,15 @@ timestamp = datetime.now().strftime("%Y%m%d_%H%M")
 
 
 def make_url(month):
-    return f"https://www.ismworld.org/supply-management-news-and-reports/reports/ism-pmi-reports/services/{month}/"
+    return (
+        "https://www.ismworld.org/"
+        "supply-management-news-and-reports/"
+        f"reports/ism-pmi-reports/services/{month}/"
+    )
 
 
 # =========================
-# 크롤링 시작
+# 2. 크롤링 시작
 # =========================
 
 with sync_playwright() as p:
@@ -40,52 +45,98 @@ with sync_playwright() as p:
     page = browser.new_page()
 
 
-    def scrape(month):
+    # =========================
+    # SERVICES 스크래핑
+    # =========================
 
-        url = make_url(month)
+    url = make_url(current_month)
 
-        print("접속 URL:", url)
+    print("접속 URL:", url)
+
+    page.goto(url)
+    page.wait_for_timeout(5000)
+
+    body_text = page.locator("body").inner_text()
+
+    used_month = current_month
+
+
+    # fallback
+    if "The content you are looking for is no longer available." in body_text:
+
+        url = make_url(previous_month)
+
+        print(f"services {current_month} 없음 → 지난달 이동:", url)
 
         page.goto(url)
         page.wait_for_timeout(5000)
 
-        body = page.locator("body").inner_text()
-
-        used_month = month
-
-        if "no longer available" in body:
-
-            url = make_url(previous_month)
-
-            page.goto(url)
-            page.wait_for_timeout(5000)
-
-            used_month = previous_month
-
-
-        respondents = page.locator("#respondentsSay + ul li").all_inner_texts()
-
-        rows = page.locator("table tbody tr")
-
-        table = []
-
-        for i in range(rows.count()):
-            cells = rows.nth(i).locator("th, td").all_inner_texts()
-            table.append(cells)
-
-        return used_month, respondents, table
+        used_month = previous_month
 
 
     # =========================
-    # SERVICES 실행
+    # RESPONDENTS (복원 핵심)
     # =========================
 
-    used_month, respondents, table = scrape(current_month)
+    respondents = page.locator(
+        "#respondentsSay + ul li"
+    ).all_inner_texts()
 
 
     # =========================
-    # Google Sheets
+    # TABLE
     # =========================
+
+    rows = page.locator(
+        "table.table-bordered.table-hover.table-responsive.mb-4 tbody tr"
+    )
+
+    table_data = []
+
+    for i in range(rows.count()):
+        cells = rows.nth(i).locator("th, td").all_inner_texts()
+        table_data.append(cells)
+
+
+    # =========================
+    # CSV 저장 (복원)
+    # =========================
+
+    filename = f"ism_services_{used_month}_{timestamp}.csv"
+
+    with open(filename, "w", newline="", encoding="utf-8-sig") as f:
+
+        writer = csv.writer(f)
+
+        writer.writerow(["===== SERVICES REPORT ====="])
+        writer.writerow(["WHAT RESPONDENTS ARE SAYING"])
+
+        for r in respondents:
+            writer.writerow([r])
+
+        writer.writerow([])
+
+        writer.writerow(["Index", "Value", "Month"])
+
+        for row in table_data:
+            if len(row) < 2:
+                continue
+
+            writer.writerow([
+                row[0],
+                row[1],
+                used_month.capitalize()
+            ])
+
+
+    print(f"\nCSV 저장 완료: {filename}")
+
+
+    # =========================
+    # Google Sheets 업로드 (복원)
+    # =========================
+
+    print("Google Sheets 업로드 시작")
 
     creds_json = json.loads(os.environ["google"])
 
@@ -105,26 +156,28 @@ with sync_playwright() as p:
 
 
     # =========================
-    # 데이터 구성
+    # SHEETS 데이터 구성 (핵심 복원)
     # =========================
 
-    rows = []
+    rows_to_append = []
 
-    rows.append(["===== SERVICES ====="])
-    rows.append(["WHAT RESPONDENTS ARE SAYING"])
+    # RESPONDENTS
+    rows_to_append.append(["===== SERVICES ====="])
+    rows_to_append.append(["WHAT RESPONDENTS ARE SAYING"])
 
     for r in respondents:
-        rows.append([r])
+        rows_to_append.append([r])
 
-    rows.append([])
+    rows_to_append.append([])
 
-    for r in table:
-        if len(r) < 2:
+    # TABLE
+    for row in table_data:
+        if len(row) < 2:
             continue
 
-        rows.append([
-            r[0],
-            r[1],
+        rows_to_append.append([
+            row[0],
+            row[1],
             used_month.capitalize()
         ])
 
@@ -133,8 +186,8 @@ with sync_playwright() as p:
     # 업로드
     # =========================
 
-    sheet.append_rows(rows, value_input_option="RAW")
+    sheet.append_rows(rows_to_append, value_input_option="RAW")
 
-    print("SERVICES 업로드 완료")
+    print("Google Sheets 업데이트 완료")
 
     browser.close()
