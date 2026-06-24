@@ -25,7 +25,7 @@ jobs:
           python-version: "3.10"
 
       # =========================
-      # 3. 의존성 설치 (핵심 수정)
+      # 3. 의존성 설치
       # =========================
       - name: Install dependencies
         run: |
@@ -33,24 +33,31 @@ jobs:
           playwright install --with-deps chromium
 
       # =========================
-      # 4. PMI 실행
+      # 4. PMI 실행 (1차)
       # =========================
-      - name: Run PMI script
+      - name: Run PMI script (1st run)
         env:
           google: ${{ secrets.google }}
         run: python pmi.py
 
       # =========================
-      # 5. SERVICES 실행
+      # 5. PMI 실행 (2차 - 재실행)
       # =========================
-      
-      # - name: Run SERVICES script
-      #   env:
-      #     google: ${{ secrets.google }}
-      #   run: python services.py
+      - name: Run PMI script (2nd run)
+        env:
+          google: ${{ secrets.google }}
+        run: python pmi.py
 
       # =========================
-      # 6. Commit CSV files
+      # 6. SERVICES 실행
+      # =========================
+      - name: Run SERVICES script
+        env:
+          google: ${{ secrets.google }}
+        run: python services.py
+
+      # =========================
+      # 7. Commit CSV files
       # =========================
       - name: Commit CSV files
         run: |
