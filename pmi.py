@@ -1,11 +1,12 @@
 from playwright.sync_api import sync_playwright
 from datetime import datetime, timedelta
+from bs4 import BeautifulSoup
 import csv
 import os
 
 
 # =========================
-# 날짜 세팅
+# 1. 날짜 세팅
 # =========================
 today = datetime.now()
 
@@ -23,7 +24,40 @@ def make_url(report_type, month):
 
 
 # =========================
-# 핵심 안정 크롤러
+# 2. HTML 파싱 함수 (BeautifulSoup)
+# =========================
+def parse_respondents(html):
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    results = []
+
+    h3 = soup.find(lambda tag:
+        tag.name in ["h3", "h2"] and
+        tag.get_text(strip=True) and
+        "WHAT RESPONDENTS ARE SAYING" in tag.get_text()
+    )
+
+    if not h3:
+        return results
+
+    current = h3.find_next()
+
+    while current:
+
+        if current.get_text(strip=True) and "MANUFACTURING AT A GLANCE" in current.get_text():
+            break
+
+        if current.name == "li":
+            results.append(current.get_text(strip=True))
+
+        current = current.find_next()
+
+    return results
+
+
+# =========================
+# 3. 크롤링 함수
 # =========================
 def scrape_report(page, report_type, month):
 
@@ -38,10 +72,9 @@ def scrape_report(page, report_type, month):
 
     used_month = month
 
-    # fallback (지난달)
     if "The content you are looking for is no longer available." in body_text:
-        fallback_month = previous_month
 
+        fallback_month = previous_month
         url = make_url(report_type, fallback_month)
 
         print(f"{report_type} {month} 없음 → 지난달 이동:", url)
@@ -52,39 +85,11 @@ def scrape_report(page, report_type, month):
         used_month = fallback_month
 
     # =========================
-    # RESPONDENTS (핵심 안정 로직)
+    # HTML 전체 가져오기
     # =========================
-    respondents = page.locator(
-        "text=WHAT RESPONDENTS ARE SAYING"
-    ).evaluate("""
-    (el) => {
-        let results = [];
+    html = page.content()
 
-        // 현재 섹션 이후 모든 element 탐색
-        let current = el.nextElementSibling;
-
-        while (current) {
-
-            // 종료 조건
-            if (current.innerText &&
-                current.innerText.includes("MANUFACTURING AT A GLANCE")) {
-                break;
-            }
-
-            // li 수집
-            let lis = current.querySelectorAll("li");
-            if (lis.length > 0) {
-                lis.forEach(li => {
-                    results.push(li.innerText.trim());
-                });
-            }
-
-            current = current.nextElementSibling;
-        }
-
-        return results;
-    }
-    """)
+    respondents = parse_respondents(html)
 
     # =========================
     # TABLE
@@ -107,7 +112,7 @@ def scrape_report(page, report_type, month):
 
 
 # =========================
-# 실행
+# 4. 실행
 # =========================
 with sync_playwright() as p:
 
@@ -126,7 +131,7 @@ with sync_playwright() as p:
 
 
     # =========================
-    # CSV 저장
+    # 5. CSV 저장
     # =========================
     filename = f"ism_reports_{pmi_data['month']}_{timestamp}.csv"
 
@@ -187,7 +192,7 @@ with sync_playwright() as p:
     print(f"\nCSV 저장 완료: {filename}")
 
     # =========================
-    # Git push (GitHub Actions용)
+    # 6. Git push (GitHub Actions)
     # =========================
     os.system("git config --global user.name 'github-actions'")
     os.system("git config --global user.email 'github-actions@github.com'")
