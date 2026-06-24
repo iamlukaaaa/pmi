@@ -4,8 +4,8 @@ on:
   workflow_dispatch:
 
   schedule:
-    # 매월 7일 UTC 22:00 실행
-    - cron: "0 22 7 * *"
+    # 매월 7일 (UTC 기준, 안전하게 8일로 처리 추천)
+    - cron: "0 0 8 * *"
 
 
 permissions:
@@ -14,75 +14,44 @@ permissions:
 
 jobs:
   scrape:
-
     runs-on: ubuntu-latest
-
 
     steps:
 
-      # =========================
-      # GitHub 코드 가져오기
-      # =========================
       - name: Checkout repository
         uses: actions/checkout@v4
 
-
-      # =========================
-      # Python 설치
-      # =========================
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-
-      # =========================
-      # 패키지 설치
-      # =========================
       - name: Install dependencies
         run: |
-          pip install playwright beautifulsoup4 gspread google-auth
+          pip install playwright gspread google-auth
           playwright install --with-deps chromium
 
-
-      # =========================
-      # PMI 실행
-      # =========================
       - name: Run PMI script
         env:
           google: ${{ secrets.google }}
         run: python pmi.py
 
-
-      # =========================
-      # SERVICES 실행
-      # =========================
       - name: Run SERVICES script
         env:
           google: ${{ secrets.google }}
         run: python services.py
 
-
-      # =========================
-      # CSV 저장 commit
-      # =========================
       - name: Commit CSV files
         run: |
-
           git config --global user.name "github-actions"
-
           git config --global user.email "github-actions@github.com"
 
-
-          git add .
-
+          git add ism_*.csv
 
           if git diff --cached --quiet; then
             echo "No changes to commit"
             exit 0
           fi
 
-
           git commit -m "Auto update ISM PMI Services data"
-
           git push
