@@ -1,6 +1,5 @@
 from playwright.sync_api import sync_playwright
 from datetime import datetime, timedelta
-import csv
 import os
 import json
 
@@ -11,7 +10,6 @@ from google.oauth2.service_account import Credentials
 # =========================
 # 1. 날짜 세팅
 # =========================
-
 today = datetime.now()
 
 current_month = today.strftime("%B").lower()
@@ -20,25 +18,14 @@ previous_month = (
     today.replace(day=1) - timedelta(days=1)
 ).strftime("%B").lower()
 
-timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+
+def make_url(report_type, month):
+    return f"https://www.ismworld.org/supply-management-news-and-reports/reports/ism-pmi-reports/{report_type}/{month}/"
 
 
 # =========================
-# URL 생성 (PMI)
+# 2. 크롤링
 # =========================
-
-def make_url(month):
-    return (
-        "https://www.ismworld.org/"
-        "supply-management-news-and-reports/"
-        f"reports/ism-pmi-reports/pmi/{month}/"
-    )
-
-
-# =========================
-# 2. 크롤링 시작 (예전 방식 복원)
-# =========================
-
 with sync_playwright() as p:
 
     browser = p.chromium.launch(
@@ -48,100 +35,53 @@ with sync_playwright() as p:
 
     page = browser.new_page()
 
+    def scrape_report(report_type, month):
 
-    # =========================
-    # PMI 스크래핑 (예전 안정 방식)
-    # =========================
-
-    url = make_url(current_month)
-
-    print("접속 URL:", url)
-
-    page.goto(url)
-    page.wait_for_timeout(5000)
-
-    body_text = page.locator("body").inner_text()
-
-    used_month = current_month
-
-
-    # fallback
-    if "The content you are looking for is no longer available." in body_text:
-
-        url = make_url(previous_month)
-
-        print(f"PMI {current_month} 없음 → 지난달 이동:", url)
+        url = make_url(report_type, month)
+        print("접속 URL:", url)
 
         page.goto(url)
         page.wait_for_timeout(5000)
 
-        used_month = previous_month
+        body_text = page.locator("body").inner_text()
 
+        used_month = month
 
-    # =========================
-    # RESPONDENTS (예전 방식 그대로)
-    # =========================
+        if "The content you are looking for is no longer available." in body_text:
+            fallback_month = previous_month
 
-    respondents = page.locator(
-        "#respondentsSay + ul li"
-    ).all_inner_texts()
+            url = make_url(report_type, fallback_month)
+            print(f"{report_type} fallback → {url}")
 
+            page.goto(url)
+            page.wait_for_timeout(5000)
 
-    # =========================
-    # TABLE (예전 방식 그대로)
-    # =========================
+            used_month = fallback_month
 
-    rows = page.locator(
-        "table.table-bordered.table-hover.table-responsive.mb-4 tbody tr"
-    )
+        respondents = page.locator("#respondentsSay + ul li").all_inner_texts()
 
-    table_data = []
+        rows = page.locator(
+            "table.table-bordered.table-hover.table-responsive.mb-4 tbody tr"
+        )
 
-    for i in range(rows.count()):
-        cells = rows.nth(i).locator("th, td").all_inner_texts()
-        table_data.append(cells)
+        table_data = []
+        for i in range(rows.count()):
+            cells = rows.nth(i).locator("th, td").all_inner_texts()
+            table_data.append(cells)
 
+        return {
+            "month": used_month,
+            "respondents": respondents,
+            "table": table_data
+        }
 
-    # =========================
-    # CSV 저장
-    # =========================
-
-    filename = f"ism_pmi_{used_month}_{timestamp}.csv"
-
-    with open(filename, "w", newline="", encoding="utf-8-sig") as f:
-
-        writer = csv.writer(f)
-
-        writer.writerow(["===== PMI REPORT ====="])
-        writer.writerow(["WHAT RESPONDENTS ARE SAYING"])
-
-        for r in respondents:
-            writer.writerow([r])
-
-        writer.writerow([])
-
-        writer.writerow(["Index", "Value", "Month"])
-
-        for row in table_data:
-            if len(row) < 2:
-                continue
-
-            writer.writerow([
-                row[0],
-                row[1],
-                used_month.capitalize()
-            ])
-
-
-    print(f"\nCSV 저장 완료: {filename}")
-
+    # PMI 실행
+    pmi_data = scrape_report("pmi", current_month)
+    final_month = pmi_data["month"]
 
     # =========================
-    # Google Sheets 업로드
+    # Google Sheets
     # =========================
-
-    print("Google Sheets 업로드 시작")
-
     creds_json = json.loads(os.environ["google"])
 
     scope = [
@@ -149,43 +89,33 @@ with sync_playwright() as p:
         "https://www.googleapis.com/auth/drive"
     ]
 
-    creds = Credentials.from_service_account_info(
-        creds_json,
-        scopes=scope
-    )
-
+    creds = Credentials.from_service_account_info(creds_json, scopes=scope)
     client = gspread.authorize(creds)
 
     sheet = client.open("지표").worksheet("ISM DATA")
-
-
-    # =========================
-    # SHEETS 업로드
-    # =========================
 
     rows_to_append = []
 
     rows_to_append.append(["===== PMI ====="])
     rows_to_append.append(["WHAT RESPONDENTS ARE SAYING"])
 
-    for r in respondents:
+    for r in pmi_data["respondents"]:
         rows_to_append.append([r])
 
     rows_to_append.append([])
 
-    for row in table_data:
+    for row in pmi_data["table"]:
         if len(row) < 2:
             continue
 
         rows_to_append.append([
             row[0],
             row[1],
-            used_month.capitalize()
+            final_month.capitalize()
         ])
-
 
     sheet.append_rows(rows_to_append, value_input_option="RAW")
 
-    print("Google Sheets 업데이트 완료")
+    print("PMI 업로드 완료")
 
     browser.close()
