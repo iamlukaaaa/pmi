@@ -102,30 +102,30 @@ with sync_playwright() as p:
     # CSV 저장 (복원)
     # =========================
 
-    filename = f"ism_pmi_{pmi_data['month']}_{timestamp}.csv"
+    filename = f"ism_pmi_{used_month}_{timestamp}.csv"
 
     with open(filename, "w", newline="", encoding="utf-8-sig") as f:
 
         writer = csv.writer(f)
 
-        writer.writerow(["===== PMI REPORT ====="])
+        writer.writerow(["===== pmi REPORT ====="])
         writer.writerow(["WHAT RESPONDENTS ARE SAYING"])
 
-        for r in pmi_data["respondents"]:
+        for r in respondents:
             writer.writerow([r])
 
         writer.writerow([])
 
         writer.writerow(["Index", "Value", "Month"])
 
-        for row in pmi_data["table"]:
+        for row in table_data:
             if len(row) < 2:
                 continue
 
             writer.writerow([
                 row[0],
                 row[1],
-                pmi_data["month"].capitalize()
+                used_month.capitalize()
             ])
 
 
