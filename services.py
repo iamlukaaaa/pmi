@@ -9,12 +9,49 @@ from google.oauth2.service_account import Credentials
 
 
 # =========================
-    # =====================================================
-    # PMI / SERVICES 공통 함수
-    # =====================================================
-    def scrape_report(report_type, month):
+# 1. 날짜 세팅
+# =========================
 
-        url = make_url(report_type, month)
+today = datetime.now()
+
+current_month = today.strftime("%B").lower()
+
+previous_month = (
+    today.replace(day=1) - timedelta(days=1)
+).strftime("%B").lower()
+
+timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+
+
+def make_url(month):
+    return (
+        "https://www.ismworld.org/"
+        "supply-management-news-and-reports/"
+        f"reports/ism-pmi-reports/services/{month}/"
+    )
+
+
+# =========================
+# 2. 크롤링 시작
+# =========================
+
+with sync_playwright() as p:
+
+    browser = p.chromium.launch(
+        headless=True,
+        args=["--no-sandbox", "--disable-dev-shm-usage"]
+    )
+
+    page = browser.new_page()
+
+
+    # =========================
+    # SERVICES 스크래핑 함수
+    # =========================
+
+    def scrape_report(month):
+
+        url = make_url(month)
 
         print("접속 URL:", url)
 
@@ -29,16 +66,28 @@ from google.oauth2.service_account import Credentials
 
             fallback_month = previous_month
 
-            url = make_url(report_type, fallback_month)
+            url = make_url(fallback_month)
 
-            print(f"{report_type} {month} 없음 → 지난달 이동:", url)
+            print(f"services {month} 없음 → 지난달 이동:", url)
 
             page.goto(url)
             page.wait_for_timeout(5000)
 
             used_month = fallback_month
 
-        li_items = page.locator("#respondentsSay + ul li").all_inner_texts()
+
+        # =========================
+        # RESPONDENTS
+        # =========================
+
+        respondents = page.locator(
+            "#respondentsSay + ul li"
+        ).all_inner_texts()
+
+
+        # =========================
+        # TABLE
+        # =========================
 
         rows = page.locator(
             "table.table-bordered.table-hover.table-responsive.mb-4 tbody tr"
@@ -50,9 +99,10 @@ from google.oauth2.service_account import Credentials
             cells = rows.nth(i).locator("th, td").all_inner_texts()
             table_data.append(cells)
 
+
         return {
             "month": used_month,
-            "respondents": li_items,
+            "respondents": respondents,
             "table": table_data
         }
 
@@ -60,19 +110,17 @@ from google.oauth2.service_account import Credentials
     # =========================
     # 실행
     # =========================
-    services_data = scrape_report("services", pmi_data["month"])
 
+    services_data = scrape_report(current_month)
 
-    # =========================
-    # 🔥 핵심 수정: 최종 성공 month 기준
-    # =========================
     final_month = services_data["month"]
 
+
     # =========================
-    # CSV 저장 (복원)
+    # CSV 저장
     # =========================
 
-    filename = f"ism_services_{used_month}_{timestamp}.csv"
+    filename = f"ism_services_{final_month}_{timestamp}.csv"
 
     with open(filename, "w", newline="", encoding="utf-8-sig") as f:
 
@@ -81,21 +129,21 @@ from google.oauth2.service_account import Credentials
         writer.writerow(["===== SERVICES REPORT ====="])
         writer.writerow(["WHAT RESPONDENTS ARE SAYING"])
 
-        for r in respondents:
+        for r in services_data["respondents"]:
             writer.writerow([r])
 
         writer.writerow([])
 
         writer.writerow(["Index", "Value", "Month"])
 
-        for row in table_data:
+        for row in services_data["table"]:
             if len(row) < 2:
                 continue
 
             writer.writerow([
                 row[0],
                 row[1],
-                used_month.capitalize()
+                final_month.capitalize()
             ])
 
 
@@ -103,7 +151,7 @@ from google.oauth2.service_account import Credentials
 
 
     # =========================
-    # Google Sheets 업로드 (복원)
+    # Google Sheets 업로드
     # =========================
 
     print("Google Sheets 업로드 시작")
@@ -126,35 +174,29 @@ from google.oauth2.service_account import Credentials
 
 
     # =========================
-    # SHEETS 데이터 구성 (핵심 복원)
+    # SHEETS 업로드
     # =========================
 
     rows_to_append = []
 
-    # RESPONDENTS
     rows_to_append.append(["===== SERVICES ====="])
     rows_to_append.append(["WHAT RESPONDENTS ARE SAYING"])
 
-    for r in respondents:
+    for r in services_data["respondents"]:
         rows_to_append.append([r])
 
     rows_to_append.append([])
 
-    # TABLE
-    for row in table_data:
+    for row in services_data["table"]:
         if len(row) < 2:
             continue
 
         rows_to_append.append([
             row[0],
             row[1],
-            used_month.capitalize()
+            final_month.capitalize()
         ])
 
-
-    # =========================
-    # 업로드
-    # =========================
 
     sheet.append_rows(rows_to_append, value_input_option="RAW")
 
