@@ -75,16 +75,16 @@ with sync_playwright() as p:
 
 
     # =========================
-    # RESPONDENTS (복원 핵심)
+    # Respondents
     # =========================
 
-    respondents = page.locator(
+    li_items = page.locator(
         "#respondentsSay + ul li"
     ).all_inner_texts()
 
 
     # =========================
-    # TABLE
+    # Table
     # =========================
 
     rows = page.locator(
@@ -94,7 +94,10 @@ with sync_playwright() as p:
     table_data = []
 
     for i in range(rows.count()):
-        cells = rows.nth(i).locator("th, td").all_inner_texts()
+        cells = rows.nth(i).locator(
+            "th, td"
+        ).all_inner_texts()
+
         table_data.append(cells)
 
 
