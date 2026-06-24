@@ -9,97 +9,64 @@ from google.oauth2.service_account import Credentials
 
 
 # =========================
-# 1. 날짜 세팅
-# =========================
+    # =====================================================
+    # PMI / SERVICES 공통 함수
+    # =====================================================
+    def scrape_report(report_type, month):
 
-today = datetime.now()
+        url = make_url(report_type, month)
 
-current_month = today.strftime("%B").lower()
-
-previous_month = (
-    today.replace(day=1) - timedelta(days=1)
-).strftime("%B").lower()
-
-timestamp = datetime.now().strftime("%Y%m%d_%H%M")
-
-
-def make_url(month):
-    return (
-        "https://www.ismworld.org/"
-        "supply-management-news-and-reports/"
-        f"reports/ism-pmi-reports/services/{month}/"
-    )
-
-
-# =========================
-# 2. 크롤링 시작
-# =========================
-
-with sync_playwright() as p:
-
-    browser = p.chromium.launch(
-        headless=True,
-        args=["--no-sandbox", "--disable-dev-shm-usage"]
-    )
-
-    page = browser.new_page()
-
-
-    # =========================
-    # SERVICES 스크래핑
-    # =========================
-
-    url = make_url(current_month)
-
-    print("접속 URL:", url)
-
-    page.goto(url)
-    page.wait_for_timeout(5000)
-
-    body_text = page.locator("body").inner_text()
-
-    used_month = current_month
-
-
-    # fallback
-    if "The content you are looking for is no longer available." in body_text:
-
-        url = make_url(previous_month)
-
-        print(f"services {current_month} 없음 → 지난달 이동:", url)
+        print("접속 URL:", url)
 
         page.goto(url)
         page.wait_for_timeout(5000)
 
-        used_month = previous_month
+        body_text = page.locator("body").inner_text()
+
+        used_month = month
+
+        if "The content you are looking for is no longer available." in body_text:
+
+            fallback_month = previous_month
+
+            url = make_url(report_type, fallback_month)
+
+            print(f"{report_type} {month} 없음 → 지난달 이동:", url)
+
+            page.goto(url)
+            page.wait_for_timeout(5000)
+
+            used_month = fallback_month
+
+        li_items = page.locator("#respondentsSay + ul li").all_inner_texts()
+
+        rows = page.locator(
+            "table.table-bordered.table-hover.table-responsive.mb-4 tbody tr"
+        )
+
+        table_data = []
+
+        for i in range(rows.count()):
+            cells = rows.nth(i).locator("th, td").all_inner_texts()
+            table_data.append(cells)
+
+        return {
+            "month": used_month,
+            "respondents": li_items,
+            "table": table_data
+        }
 
 
     # =========================
-    # Respondents
+    # 실행
     # =========================
-
-    li_items = page.locator(
-        "#respondentsSay + ul li"
-    ).all_inner_texts()
+    services_data = scrape_report("services", pmi_data["month"])
 
 
     # =========================
-    # Table
+    # 🔥 핵심 수정: 최종 성공 month 기준
     # =========================
-
-    rows = page.locator(
-        "table.table-bordered.table-hover.table-responsive.mb-4 tbody tr"
-    )
-
-    table_data = []
-
-    for i in range(rows.count()):
-        cells = rows.nth(i).locator(
-            "th, td"
-        ).all_inner_texts()
-
-        table_data.append(cells)
-
+    final_month = services_data["month"]
 
     # =========================
     # CSV 저장 (복원)
