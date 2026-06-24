@@ -1,6 +1,7 @@
 from playwright.sync_api import sync_playwright
 from datetime import datetime, timedelta
 import csv
+import os
 
 
 # =========================
@@ -154,5 +155,13 @@ with sync_playwright() as p:
 
 
     print(f"\nCSV 저장 완료: {filename}")
+
+
+    os.system("git config --global user.name 'github-actions'")
+    os.system("git config --global user.email 'github-actions@github.com'")
+    
+    os.system("git add .")
+    os.system(f"git commit -m 'Add PMI report {timestamp}'")
+    os.system("git push")
 
     browser.close()
