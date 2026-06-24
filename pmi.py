@@ -1,76 +1,98 @@
-# =========================
-# PMI 1 → PMI 2 → SERVICES
-# =========================
 
-pmi_data_1 = scrape_report("pmi", current_month)
-pmi_data_2 = scrape_report("pmi", current_month)
-services_data = scrape_report("services", pmi_data_1["month"])
-
+from playwright.sync_api import sync_playwright
+from datetime import datetime, timedelta
+import json
+import gspread
+from google.oauth2.service_account import Credentials
 
 # =========================
-# CSV / SHEETS 출력
+# 1. 날짜
 # =========================
+today = datetime.now()
 
-rows_to_append = []
+current_month = today.strftime("%B").lower()
 
-
-# =========================
-# PMI 1
-# =========================
-rows_to_append.append(["===== PMI RUN 1 ====="])
-rows_to_append.append(["WHAT RESPONDENTS ARE SAYING"])
-
-for r in pmi_data_1["respondents"]:
-    rows_to_append.append([r])
-
-rows_to_append.append([])
-
-for row in pmi_data_1["table"]:
-    if len(row) < 2:
-        continue
-    rows_to_append.append([row[0], row[1], pmi_data_1["month"].capitalize()])
-
-rows_to_append.append([])
+previous_month = (
+    today.replace(day=1) - timedelta(days=1)
+).strftime("%B").lower()
 
 
 # =========================
-# PMI 2
+# 2. URL
 # =========================
-rows_to_append.append(["===== PMI RUN 2 ====="])
-rows_to_append.append(["WHAT RESPONDENTS ARE SAYING"])
-
-for r in pmi_data_2["respondents"]:
-    rows_to_append.append([r])
-
-rows_to_append.append([])
-
-for row in pmi_data_2["table"]:
-    if len(row) < 2:
-        continue
-    rows_to_append.append([row[0], row[1], pmi_data_2["month"].capitalize()])
-
-rows_to_append.append([])
+def make_url(report_type, month):
+    return f"https://www.ismworld.org/supply-management-news-and-reports/reports/ism-pmi-reports/{report_type}/{month}/"
 
 
 # =========================
-# SERVICES
+# 3. 크롤링 함수 (⚠️ 반드시 먼저 선언)
 # =========================
-rows_to_append.append(["===== SERVICES ====="])
-rows_to_append.append(["WHAT RESPONDENTS ARE SAYING"])
+def scrape_report(page, report_type, month):
 
-for r in services_data["respondents"]:
-    rows_to_append.append([r])
+    url = make_url(report_type, month)
 
-rows_to_append.append([])
+    print("접속 URL:", url)
 
-for row in services_data["table"]:
-    if len(row) < 2:
-        continue
-    rows_to_append.append([row[0], row[1], services_data["month"].capitalize()])
+    page.goto(url)
+    page.wait_for_timeout(5000)
+
+    body_text = page.locator("body").inner_text()
+
+    used_month = month
+
+    if "The content you are looking for is no longer available." in body_text:
+
+        fallback_month = previous_month
+
+        url = make_url(report_type, fallback_month)
+
+        print(f"{report_type} fallback → {fallback_month}")
+
+        page.goto(url)
+        page.wait_for_timeout(5000)
+
+        used_month = fallback_month
+
+
+    respondents = page.locator("#respondentsSay + ul li").all_inner_texts()
+
+    rows = page.locator(
+        "table.table-bordered.table-hover.table-responsive.mb-4 tbody tr"
+    )
+
+    table_data = []
+
+    for i in range(rows.count()):
+        cells = rows.nth(i).locator("th, td").all_inner_texts()
+        table_data.append(cells)
+
+    return {
+        "month": used_month,
+        "respondents": respondents,
+        "table": table_data
+    }
 
 
 # =========================
-# Google Sheets 업로드
+# 4. 실행
 # =========================
+with sync_playwright() as p:
 
-sheet.append_rows(rows_to_append, value_input_option="RAW")
+    browser = p.chromium.launch(
+        headless=True,
+        args=["--no-sandbox", "--disable-dev-shm-usage"]
+    )
+
+    page = browser.new_page()
+
+    # ✅ 이제 정상 호출 가능
+    pmi_data_1 = scrape_report(page, "pmi", current_month)
+    pmi_data_2 = scrape_report(page, "pmi", current_month)
+    services_data = scrape_report(page, "services", pmi_data_1["month"])
+
+    print("PMI1:", len(pmi_data_1["table"]))
+    print("PMI2:", len(pmi_data_2["table"]))
+    print("SERVICES:", len(services_data["table"]))
+
+
+    browser.close()
