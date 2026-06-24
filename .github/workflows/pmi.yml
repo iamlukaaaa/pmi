@@ -35,19 +35,19 @@ jobs:
       # =========================
       # 4. PMI 실행
       # =========================
-      - name: Run PMI script
-        env:
-          google: ${{ secrets.google }}
-        run: python pmi.py
+      # - name: Run PMI script
+      #   env:
+      #     google: ${{ secrets.google }}
+      #   run: python pmi.py
 
       # =========================
       # 5. SERVICES 실행
       # =========================
       
-      # - name: Run SERVICES script
-      #   env:
-      #     google: ${{ secrets.google }}
-      #   run: python services.py
+      - name: Run SERVICES script
+        env:
+          google: ${{ secrets.google }}
+        run: python services.py
 
       # =========================
       # 6. Commit CSV files
