@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 import csv
 import os
 import json
+
 import gspread
 from google.oauth2.service_account import Credentials
 
@@ -10,6 +11,7 @@ from google.oauth2.service_account import Credentials
 # =========================
 # 1. 날짜 세팅
 # =========================
+
 today = datetime.now()
 
 current_month = today.strftime("%B").lower()
@@ -28,6 +30,7 @@ def make_url(report_type, month):
 # =========================
 # 2. 크롤링 시작
 # =========================
+
 with sync_playwright() as p:
 
     browser = p.chromium.launch(
@@ -38,9 +41,9 @@ with sync_playwright() as p:
     page = browser.new_page()
 
 
-    # =====================================================
-    # PMI / SERVICES 공통 함수
-    # =====================================================
+    # =========================
+    # PMI 스크래핑 함수
+    # =========================
     def scrape_report(report_type, month):
 
         url = make_url(report_type, month)
@@ -67,8 +70,10 @@ with sync_playwright() as p:
 
             used_month = fallback_month
 
+
         # respondents
         li_items = page.locator("#respondentsSay + ul li").all_inner_texts()
+
 
         # table
         rows = page.locator(
@@ -81,6 +86,7 @@ with sync_playwright() as p:
             cells = rows.nth(i).locator("th, td").all_inner_texts()
             table_data.append(cells)
 
+
         return {
             "month": used_month,
             "respondents": li_items,
@@ -89,133 +95,95 @@ with sync_playwright() as p:
 
 
     # =========================
-    # ⭐ 변경: SERVICES 먼저 실행
+    # PMI 실행
     # =========================
-    services_data = scrape_report("services", current_month)
 
-    # PMI는 SERVICES 기준 month 사용
-    pmi_data = scrape_report("pmi", services_data["month"])
+    pmi_data = scrape_report("pmi", current_month)
 
 
     # =========================
     # CSV 저장
     # =========================
-    filename = f"ism_reports_{pmi_data['month']}_{timestamp}.csv"
+
+    filename = f"ism_pmi_{pmi_data['month']}_{timestamp}.csv"
 
     with open(filename, "w", newline="", encoding="utf-8-sig") as f:
 
         writer = csv.writer(f)
 
-        # =========================
-        # SERVICES 먼저 출력
-        # =========================
-        writer.writerow(["===== SERVICES REPORT ====="])
-        writer.writerow(["WHAT RESPONDENTS ARE SAYING"])
+        writer.writerow(["Index", "Value", "Month"])
 
-        for item in services_data["respondents"]:
-            writer.writerow([item])
 
-        writer.writerow([])
+        for row in pmi_data["table"]:
 
-        writer.writerow([
-            "Index",
-            "May",
-            "Apr",
-            "Change",
-            "Direction",
-            "Rate",
-            "Trend"
-        ])
+            if len(row) < 2:
+                continue
 
-        writer.writerows(services_data["table"])
+            index_name = row[0]
+            value = row[1]
 
-        writer.writerow([])
-        writer.writerow([])
-
-        # =========================
-        # PMI 나중 출력
-        # =========================
-        writer.writerow(["===== PMI REPORT ====="])
-        writer.writerow(["WHAT RESPONDENTS ARE SAYING"])
-
-        for item in pmi_data["respondents"]:
-            writer.writerow([item])
-
-        writer.writerow([])
-
-        writer.writerow([
-            "Index",
-            "May",
-            "Apr",
-            "Change",
-            "Direction",
-            "Rate",
-            "Trend"
-        ])
-
-        writer.writerows(pmi_data["table"])
+            writer.writerow([
+                index_name,
+                value,
+                pmi_data["month"].capitalize()
+            ])
 
 
     print(f"\nCSV 저장 완료: {filename}")
-    
-    
+
+
     # =========================
-    # Google Sheets 업로드
+    # Google Sheets 업로드 (누적 방식)
     # =========================
-    
-    import json
-    import gspread
-    from google.oauth2.service_account import Credentials
-    
-    
-    # GitHub Secret "google" 가져오기
+
+    print("Google Sheets 업로드 시작")
+
+
     creds_json = json.loads(os.environ["google"])
-    
-    
+
+
     scope = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive"
     ]
-    
-    
+
+
     creds = Credentials.from_service_account_info(
         creds_json,
         scopes=scope
     )
-    
-    
+
+
     client = gspread.authorize(creds)
-    
-    
-    # 실제 구글 스프레드시트 이름 입력
-    sheet = client.open("ISM PMI DATA").sheet1
-    
-    
-    # 방금 만든 CSV 읽기
-    with open(filename, "r", encoding="utf-8-sig") as f:
-        data = list(csv.reader(f))
-    
-    
-    # 기존 내용 삭제 후 새 데이터 입력
-    sheet.clear()
-    
-    sheet.update(
-        "A1",
-        data
-    )
-    
-    
+
+
+    # 🔥 스프레드시트 이름 (반드시 실제 이름과 동일)
+    sheet = client.open("지표").worksheet("ISM DATA")
+
+
+    rows = []
+
+
+    for row in pmi_data["table"]:
+
+        if len(row) < 2:
+            continue
+
+        index_name = row[0]
+        value = row[1]
+
+        rows.append([
+            index_name,
+            value,
+            pmi_data["month"].capitalize()
+        ])
+
+
+    # 🔥 핵심: 누적 저장 (덮어쓰기 아님)
+    sheet.append_rows(rows, value_input_option="RAW")
+
+
     print("Google Sheets 업데이트 완료")
 
-
-    # =========================
-    # Git push
-    # =========================
-    os.system("git config --global user.name 'github-actions'")
-    os.system("git config --global user.email 'github-actions@github.com'")
-    
-    os.system("git add .")
-    os.system(f"git commit -m 'Add PMI report {timestamp}'")
-    os.system("git push")
 
     browser.close()
