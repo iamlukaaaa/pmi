@@ -56,7 +56,7 @@ with sync_playwright() as p:
         print("접속 URL:", url)
 
         page.goto(url)
-        page.wait_for_timeout(5000)
+        page.wait_for_load_state("networkidle")
 
         body_text = page.locator("body").inner_text()
 
