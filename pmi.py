@@ -23,16 +23,20 @@ previous_month = (
 timestamp = datetime.now().strftime("%Y%m%d_%H%M")
 
 
+# =========================
+# URL 생성 (PMI)
+# =========================
+
 def make_url(month):
     return (
         "https://www.ismworld.org/"
         "supply-management-news-and-reports/"
-        f"reports/ism-pmi-reports/services/{month}/"
+        f"reports/ism-pmi-reports/pmi/{month}/"
     )
 
 
 # =========================
-# 2. 크롤링 시작
+# 2. 크롤링 시작 (예전 방식 복원)
 # =========================
 
 with sync_playwright() as p:
@@ -46,7 +50,7 @@ with sync_playwright() as p:
 
 
     # =========================
-    # PMI 스크래핑
+    # PMI 스크래핑 (예전 안정 방식)
     # =========================
 
     url = make_url(current_month)
@@ -66,7 +70,7 @@ with sync_playwright() as p:
 
         url = make_url(previous_month)
 
-        print(f"services {current_month} 없음 → 지난달 이동:", url)
+        print(f"PMI {current_month} 없음 → 지난달 이동:", url)
 
         page.goto(url)
         page.wait_for_timeout(5000)
@@ -75,7 +79,7 @@ with sync_playwright() as p:
 
 
     # =========================
-    # RESPONDENTS (복원 핵심)
+    # RESPONDENTS (예전 방식 그대로)
     # =========================
 
     respondents = page.locator(
@@ -84,7 +88,7 @@ with sync_playwright() as p:
 
 
     # =========================
-    # TABLE
+    # TABLE (예전 방식 그대로)
     # =========================
 
     rows = page.locator(
@@ -99,7 +103,7 @@ with sync_playwright() as p:
 
 
     # =========================
-    # CSV 저장 (복원)
+    # CSV 저장
     # =========================
 
     filename = f"ism_pmi_{used_month}_{timestamp}.csv"
@@ -108,7 +112,7 @@ with sync_playwright() as p:
 
         writer = csv.writer(f)
 
-        writer.writerow(["===== pmi REPORT ====="])
+        writer.writerow(["===== PMI REPORT ====="])
         writer.writerow(["WHAT RESPONDENTS ARE SAYING"])
 
         for r in respondents:
@@ -133,7 +137,7 @@ with sync_playwright() as p:
 
 
     # =========================
-    # Google Sheets 업로드 (복원 핵심)
+    # Google Sheets 업로드
     # =========================
 
     print("Google Sheets 업로드 시작")
@@ -156,12 +160,11 @@ with sync_playwright() as p:
 
 
     # =========================
-    # SHEETS 데이터 구성 (핵심 복원)
+    # SHEETS 업로드
     # =========================
 
     rows_to_append = []
 
-    # RESPONDENTS
     rows_to_append.append(["===== PMI ====="])
     rows_to_append.append(["WHAT RESPONDENTS ARE SAYING"])
 
@@ -170,7 +173,6 @@ with sync_playwright() as p:
 
     rows_to_append.append([])
 
-    # TABLE
     for row in table_data:
         if len(row) < 2:
             continue
@@ -181,10 +183,6 @@ with sync_playwright() as p:
             used_month.capitalize()
         ])
 
-
-    # =========================
-    # 업로드
-    # =========================
 
     sheet.append_rows(rows_to_append, value_input_option="RAW")
 
