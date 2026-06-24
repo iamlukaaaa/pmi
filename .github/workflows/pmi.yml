@@ -4,10 +4,13 @@ on:
   workflow_dispatch:
 
   schedule:
-    - cron: "0 0 8 * *"   # 매월 8일 안정 실행 (추천)
+    # 매월 7일 (UTC 기준, 안전하게 8일로 처리 추천)
+    - cron: "0 0 8 * *"
+
 
 permissions:
   contents: write
+
 
 jobs:
   scrape:
@@ -28,18 +31,17 @@ jobs:
           pip install playwright gspread google-auth
           playwright install --with-deps chromium
 
-      # =========================
-      # 단일 실행 (핵심 변경)
-      # =========================
-      - name: Run scraper
+      - name: Run PMI script
         env:
           google: ${{ secrets.google }}
         run: python pmi.py
 
-      # =========================
-      # Commit 결과
-      # =========================
-      - name: Commit changes
+      - name: Run SERVICES script
+        env:
+          google: ${{ secrets.google }}
+        run: python services.py
+
+      - name: Commit CSV files
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@github.com"
@@ -51,5 +53,5 @@ jobs:
             exit 0
           fi
 
-          git commit -m "Auto update ISM PMI & Services"
+          git commit -m "Auto update ISM PMI Services data"
           git push
