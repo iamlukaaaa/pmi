@@ -1,67 +1,88 @@
-name: ISM PMI & Services Weekly Scraper
+name: ISM PMI & Services Scraper
 
 on:
   workflow_dispatch:
 
   schedule:
-    # 매월 7일 실행 (UTC 기준)
+    # 매월 7일 UTC 22:00 실행
     - cron: "0 22 7 * *"
+
 
 permissions:
   contents: write
 
+
 jobs:
   scrape:
+
     runs-on: ubuntu-latest
 
+
     steps:
-      # =========================
-      # 1. 코드 체크아웃
-      # =========================
-      - uses: actions/checkout@v4
 
       # =========================
-      # 2. Python 설치
+      # GitHub 코드 가져오기
       # =========================
-      - uses: actions/setup-python@v5
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      # =========================
+      # Python 설치
+      # =========================
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
+
       # =========================
-      # 3. 의존성 설치
+      # 패키지 설치
       # =========================
       - name: Install dependencies
         run: |
-          pip install playwright beautifulsoup4
+          pip install playwright beautifulsoup4 gspread google-auth
           playwright install --with-deps chromium
 
+
       # =========================
-      # 4. PMI 실행
+      # PMI 실행
       # =========================
       - name: Run PMI script
+        env:
+          google: ${{ secrets.google }}
         run: python pmi.py
 
-      # =========================
-      # 5. SERVICES 실행
-      # =========================
-      - name: Run SERVICES script
-        run: python services.py
 
       # =========================
-      # 6. Git commit (안전 처리)
+      # SERVICES 실행
+      # =========================
+      - name: Run SERVICES script
+        env:
+          google: ${{ secrets.google }}
+        run: python services.py
+
+
+      # =========================
+      # CSV 저장 commit
       # =========================
       - name: Commit CSV files
         run: |
+
           git config --global user.name "github-actions"
+
           git config --global user.email "github-actions@github.com"
+
 
           git add .
 
-          # 변경 없으면 안전 종료
+
           if git diff --cached --quiet; then
             echo "No changes to commit"
             exit 0
           fi
 
-          git commit -m "Auto update ISM PMI & Services data"
+
+          git commit -m "Auto update ISM PMI Services data"
+
           git push
