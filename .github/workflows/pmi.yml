@@ -1,7 +1,11 @@
-name: First pmi workflow
+name: ISM PMI & Services Weekly Scraper
 
 on:
   workflow_dispatch:
+
+  schedule:
+    # 매월 7일 실행 (UTC 기준)
+    - cron: "0 22 7 * *"
 
 permissions:
   contents: write
@@ -12,7 +16,7 @@ jobs:
 
     steps:
       # =========================
-      # 1. 코드 가져오기
+      # 1. 코드 체크아웃
       # =========================
       - uses: actions/checkout@v4
 
@@ -53,11 +57,11 @@ jobs:
 
           git add .
 
-          # 변경 없으면 실패 안 나게 처리
+          # 변경 없으면 안전 종료
           if git diff --cached --quiet; then
             echo "No changes to commit"
             exit 0
           fi
 
-          git commit -m "Add PMI & Services reports"
+          git commit -m "Auto update ISM PMI & Services data"
           git push
