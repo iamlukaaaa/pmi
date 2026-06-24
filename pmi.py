@@ -23,8 +23,12 @@ previous_month = (
 timestamp = datetime.now().strftime("%Y%m%d_%H%M")
 
 
-def make_url(report_type, month):
-    return f"https://www.ismworld.org/supply-management-news-and-reports/reports/ism-pmi-reports/{report_type}/{month}/"
+def make_url(month):
+    return (
+        "https://www.ismworld.org/"
+        "supply-management-news-and-reports/"
+        f"reports/ism-pmi-reports/services/{month}/"
+    )
 
 
 # =========================
@@ -45,65 +49,53 @@ with sync_playwright() as p:
     # PMI 스크래핑
     # =========================
 
-    def scrape_report(report_type, month):
+    url = make_url(current_month)
 
-        url = make_url(report_type, month)
+    print("접속 URL:", url)
 
-        print("접속 URL:", url)
+    page.goto(url)
+    page.wait_for_timeout(5000)
+
+    body_text = page.locator("body").inner_text()
+
+    used_month = current_month
+
+
+    # fallback
+    if "The content you are looking for is no longer available." in body_text:
+
+        url = make_url(previous_month)
+
+        print(f"services {current_month} 없음 → 지난달 이동:", url)
 
         page.goto(url)
         page.wait_for_timeout(5000)
 
-        body_text = page.locator("body").inner_text()
-
-        used_month = month
-
-        if "The content you are looking for is no longer available." in body_text:
-
-            fallback_month = previous_month
-
-            url = make_url(report_type, fallback_month)
-
-            print(f"{report_type} {month} 없음 → 지난달 이동:", url)
-
-            page.goto(url)
-            page.wait_for_timeout(5000)
-
-            used_month = fallback_month
-
-
-        # =========================
-        # RESPONDENTS (복원)
-        # =========================
-        respondents = page.locator("#respondentsSay + ul li").all_inner_texts()
-
-
-        # =========================
-        # TABLE
-        # =========================
-        rows = page.locator(
-            "table.table-bordered.table-hover.table-responsive.mb-4 tbody tr"
-        )
-
-        table_data = []
-
-        for i in range(rows.count()):
-            cells = rows.nth(i).locator("th, td").all_inner_texts()
-            table_data.append(cells)
-
-
-        return {
-            "month": used_month,
-            "respondents": respondents,
-            "table": table_data
-        }
+        used_month = previous_month
 
 
     # =========================
-    # PMI 실행
+    # RESPONDENTS (복원 핵심)
     # =========================
 
-    pmi_data = scrape_report("pmi", current_month)
+    respondents = page.locator(
+        "#respondentsSay + ul li"
+    ).all_inner_texts()
+
+
+    # =========================
+    # TABLE
+    # =========================
+
+    rows = page.locator(
+        "table.table-bordered.table-hover.table-responsive.mb-4 tbody tr"
+    )
+
+    table_data = []
+
+    for i in range(rows.count()):
+        cells = rows.nth(i).locator("th, td").all_inner_texts()
+        table_data.append(cells)
 
 
     # =========================
@@ -167,26 +159,26 @@ with sync_playwright() as p:
     # SHEETS 데이터 구성 (핵심 복원)
     # =========================
 
-    rows = []
+    rows_to_append = []
 
     # RESPONDENTS
-    rows.append(["===== PMI ====="])
-    rows.append(["WHAT RESPONDENTS ARE SAYING"])
+    rows_to_append.append(["===== PMI ====="])
+    rows_to_append.append(["WHAT RESPONDENTS ARE SAYING"])
 
-    for r in pmi_data["respondents"]:
-        rows.append([r])
+    for r in respondents:
+        rows_to_append.append([r])
 
-    rows.append([])
+    rows_to_append.append([])
 
     # TABLE
-    for row in pmi_data["table"]:
+    for row in table_data:
         if len(row) < 2:
             continue
 
-        rows.append([
+        rows_to_append.append([
             row[0],
             row[1],
-            pmi_data["month"].capitalize()
+            used_month.capitalize()
         ])
 
 
@@ -194,7 +186,7 @@ with sync_playwright() as p:
     # 업로드
     # =========================
 
-    sheet.append_rows(rows, value_input_option="RAW")
+    sheet.append_rows(rows_to_append, value_input_option="RAW")
 
     print("Google Sheets 업데이트 완료")
 
