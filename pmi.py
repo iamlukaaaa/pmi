@@ -22,7 +22,7 @@ def make_url(report_type, month):
 
 
 # =========================
-# 2. 크롤링 함수
+# 2. 안정 크롤링 함수
 # =========================
 def scrape_report(page, report_type, month):
 
@@ -31,14 +31,15 @@ def scrape_report(page, report_type, month):
     print("접속 URL:", url)
 
     page.goto(url, wait_until="domcontentloaded")
-    page.wait_for_timeout(5000)
+    page.wait_for_load_state("networkidle")
+    page.wait_for_timeout(3000)
 
     body_text = page.locator("body").inner_text()
 
     used_month = month
 
+    # fallback
     if "The content you are looking for is no longer available." in body_text:
-
         fallback_month = previous_month
 
         url = make_url(report_type, fallback_month)
@@ -46,14 +47,21 @@ def scrape_report(page, report_type, month):
         print(f"{report_type} {month} 없음 → 지난달 이동:", url)
 
         page.goto(url, wait_until="domcontentloaded")
-        page.wait_for_timeout(5000)
+        page.wait_for_load_state("networkidle")
+        page.wait_for_timeout(3000)
 
         used_month = fallback_month
 
-    # respondents
-    li_items = page.locator("#respondentsSay + ul li").all_inner_texts()
+    # =========================
+    # respondents (안정 selector)
+    # =========================
+    respondents = page.locator(
+        "#respondentsSay"
+    ).locator("xpath=following::li").all_inner_texts()
 
+    # =========================
     # table
+    # =========================
     rows = page.locator(
         "table.table-bordered.table-hover.table-responsive.mb-4 tbody tr"
     )
@@ -66,7 +74,7 @@ def scrape_report(page, report_type, month):
 
     return {
         "month": used_month,
-        "respondents": li_items,
+        "respondents": respondents,
         "table": table_data
     }
 
@@ -79,10 +87,10 @@ with sync_playwright() as p:
     browser = p.chromium.launch(headless=True)
     page = browser.new_page()
 
-    # PMI 먼저 실행
+    # PMI
     pmi_data = scrape_report(page, "pmi", current_month)
 
-    # SERVICES는 PMI 기준 월 사용
+    # SERVICES (PMI 기준 month 공유)
     services_data = scrape_report(page, "services", pmi_data["month"])
 
     # =========================
@@ -104,13 +112,7 @@ with sync_playwright() as p:
         writer.writerow([])
 
         writer.writerow([
-            "Index",
-            "May",
-            "Apr",
-            "Change",
-            "Direction",
-            "Rate",
-            "Trend"
+            "Index", "May", "Apr", "Change", "Direction", "Rate", "Trend"
         ])
 
         writer.writerows(pmi_data["table"])
@@ -128,13 +130,7 @@ with sync_playwright() as p:
         writer.writerow([])
 
         writer.writerow([
-            "Index",
-            "May",
-            "Apr",
-            "Change",
-            "Direction",
-            "Rate",
-            "Trend"
+            "Index", "May", "Apr", "Change", "Direction", "Rate", "Trend"
         ])
 
         writer.writerows(services_data["table"])
@@ -142,7 +138,7 @@ with sync_playwright() as p:
     print(f"\nCSV 저장 완료: {filename}")
 
     # =========================
-    # 5. GitHub 자동 push
+    # 5. GitHub push (선택)
     # =========================
     os.system("git config --global user.name 'github-actions'")
     os.system("git config --global user.email 'github-actions@github.com'")
