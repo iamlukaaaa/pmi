@@ -1,29 +1,23 @@
 from playwright.sync_api import sync_playwright
-from datetime import datetime, timedelta
+from datetime import datetime
 import csv
 import os
 
 
 # =========================
-# 1. 날짜 세팅
+# 날짜
 # =========================
 today = datetime.now()
-
 current_month = today.strftime("%B").lower()
-
-previous_month = (
-    today.replace(day=1) - timedelta(days=1)
-).strftime("%B").lower()
-
 timestamp = datetime.now().strftime("%Y%m%d_%H%M")
 
 
-def make_url(report_type, month):
-    return f"https://www.ismworld.org/supply-management-news-and-reports/reports/ism-pmi-reports/{report_type}/{month}/"
+def make_url(month):
+    return f"https://www.ismworld.org/supply-management-news-and-reports/reports/ism-pmi-reports/services/{month}/"
 
 
 # =========================
-# 2. 크롤링 시작
+# 실행
 # =========================
 with sync_playwright() as p:
 
@@ -34,125 +28,65 @@ with sync_playwright() as p:
 
     page = browser.new_page()
 
+    url = make_url(current_month)
+    print("접속 URL:", url)
 
-    # =====================================================
-    # PMI / SERVICES 공통 함수
-    # =====================================================
-    def scrape_report(report_type, month):
+    page.goto(url)
+    page.wait_for_timeout(5000)
 
-        url = make_url(report_type, month)
+    body_text = page.locator("body").inner_text()
 
-        print("접속 URL:", url)
+    used_month = current_month
+
+    # fallback (없으면 지난달)
+    if "The content you are looking for is no longer available." in body_text:
+        from datetime import timedelta
+
+        previous_month = (
+            datetime.now().replace(day=1) - timedelta(days=1)
+        ).strftime("%B").lower()
+
+        url = make_url(previous_month)
+        print("현재 월 없음 → 지난달 이동:", url)
 
         page.goto(url)
         page.wait_for_timeout(5000)
 
-        body_text = page.locator("body").inner_text()
-
-        used_month = month
-
-        if "The content you are looking for is no longer available." in body_text:
-
-            fallback_month = previous_month
-            url = make_url(report_type, fallback_month)
-
-            print(f"{report_type} {month} 없음 → 지난달 이동:", url)
-
-            page.goto(url)
-            page.wait_for_timeout(5000)
-
-            used_month = fallback_month
-
-        # =========================
-        # PMI ONLY FIX (핵심)
-        # =========================
-        if report_type == "pmi":
-
-            ul = page.locator(
-                "#respondentsSay"
-            ).locator("xpath=following-sibling::ul[1]")
-
-            li_items = ul.locator("li").all_inner_texts()
-
-        else:
-            # SERVICES (기존 방식 유지)
-            li_items = page.locator(
-                "#respondentsSay + ul li"
-            ).all_inner_texts()
-
-        # =========================
-        # table (공통)
-        # =========================
-        rows = page.locator(
-            "table.table-bordered.table-hover.table-responsive.mb-4 tbody tr"
-        )
-
-        table_data = []
-
-        for i in range(rows.count()):
-            cells = rows.nth(i).locator("th, td").all_inner_texts()
-            table_data.append(cells)
-
-        return {
-            "month": used_month,
-            "respondents": li_items,
-            "table": table_data
-        }
-
+        used_month = previous_month
 
     # =========================
-    # PMI 먼저 실행
+    # respondents (Services 전용)
     # =========================
-    pmi_data = scrape_report("pmi", current_month)
+    respondents = page.locator(
+        "#respondentsSay + ul li"
+    ).all_inner_texts()
 
     # =========================
-    # SERVICES (PMI 기준 월 유지)
+    # table
     # =========================
-    services_data = scrape_report("services", pmi_data["month"])
+    rows = page.locator(
+        "table.table-bordered.table-hover.table-responsive.mb-4 tbody tr"
+    )
 
+    table_data = []
+
+    for i in range(rows.count()):
+        cells = rows.nth(i).locator("th, td").all_inner_texts()
+        table_data.append(cells)
 
     # =========================
     # CSV 저장
     # =========================
-    filename = f"ism_reports_{pmi_data['month']}_{timestamp}.csv"
+    filename = f"ism_services_{used_month}_{timestamp}.csv"
 
     with open(filename, "w", newline="", encoding="utf-8-sig") as f:
 
         writer = csv.writer(f)
 
-        # =========================
-        # PMI
-        # =========================
-        writer.writerow(["===== PMI REPORT ====="])
-        writer.writerow(["WHAT RESPONDENTS ARE SAYING"])
-
-        for item in pmi_data["respondents"]:
-            writer.writerow([item])
-
-        writer.writerow([])
-
-        writer.writerow([
-            "Index",
-            "May",
-            "Apr",
-            "Change",
-            "Direction",
-            "Rate",
-            "Trend"
-        ])
-
-        writer.writerows(pmi_data["table"])
-
-        writer.writerow([])
-        writer.writerow([])
-
-        # =========================
-        # SERVICES
-        # =========================
         writer.writerow(["===== SERVICES REPORT ====="])
         writer.writerow(["WHAT RESPONDENTS ARE SAYING"])
 
-        for item in services_data["respondents"]:
+        for item in respondents:
             writer.writerow([item])
 
         writer.writerow([])
@@ -167,18 +101,15 @@ with sync_playwright() as p:
             "Trend"
         ])
 
-        writer.writerows(services_data["table"])
-
+        writer.writerows(table_data)
 
     print(f"\nCSV 저장 완료: {filename}")
 
-    # =========================
     # Git push
-    # =========================
     os.system("git config --global user.name 'github-actions'")
     os.system("git config --global user.email 'github-actions@github.com'")
     os.system("git add .")
-    os.system(f"git commit -m 'Add PMI report {timestamp}'")
+    os.system(f"git commit -m 'Add Services report {timestamp}'")
     os.system("git push")
 
     browser.close()
