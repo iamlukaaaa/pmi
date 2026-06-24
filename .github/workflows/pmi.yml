@@ -1,16 +1,10 @@
-name: ISM PMI & Services Scraper
+name: First pmi workflow
 
 on:
   workflow_dispatch:
 
-  schedule:
-    # 매월 7일 (UTC 기준, 안전하게 8일로 처리 추천)
-    - cron: "0 0 8 * *"
-
-
 permissions:
   contents: write
-
 
 jobs:
   scrape:
@@ -18,40 +12,56 @@ jobs:
 
     steps:
 
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      # =========================
+      # 1. 코드 가져오기
+      # =========================
+      - uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      # =========================
+      # 2. Python 설치
+      # =========================
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
+      # =========================
+      # 3. 의존성 설치 (핵심 수정)
+      # =========================
       - name: Install dependencies
         run: |
-          pip install playwright gspread google-auth
+          pip install playwright beautifulsoup4 gspread google-auth
           playwright install --with-deps chromium
 
+      # =========================
+      # 4. PMI 실행
+      # =========================
       - name: Run PMI script
         env:
           google: ${{ secrets.google }}
         run: python pmi.py
 
+      # =========================
+      # 5. SERVICES 실행
+      # =========================
       - name: Run SERVICES script
         env:
           google: ${{ secrets.google }}
         run: python services.py
 
+      # =========================
+      # 6. Commit CSV files
+      # =========================
       - name: Commit CSV files
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@github.com"
 
-          git add ism_*.csv
+          git add .
 
           if git diff --cached --quiet; then
             echo "No changes to commit"
             exit 0
           fi
 
-          git commit -m "Auto update ISM PMI Services data"
+          git commit -m "Add PMI & Services reports"
           git push
