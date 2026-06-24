@@ -1,4 +1,4 @@
-name: First pmi workflow
+name: ISM workflows
 
 on:
   workflow_dispatch:
