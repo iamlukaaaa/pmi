@@ -64,10 +64,8 @@ with sync_playwright() as p:
 
             used_month = fallback_month
 
-        # respondents
         li_items = page.locator("#respondentsSay + ul li").all_inner_texts()
 
-        # table
         rows = page.locator(
             "table.table-bordered.table-hover.table-responsive.mb-4 tbody tr"
         )
@@ -86,52 +84,30 @@ with sync_playwright() as p:
 
 
     # =========================
-    # ⭐ 변경: SERVICES 먼저 실행
+    # PMI 먼저 실행
     # =========================
-    services_data = scrape_report("services", current_month)
+    pmi_data = scrape_report("pmi", current_month)
 
-    # PMI는 SERVICES 기준 month 사용
-    pmi_data = scrape_report("pmi", services_data["month"])
+    # SERVICES
+    services_data = scrape_report("services", pmi_data["month"])
+
+
+    # =========================
+    # 🔥 핵심 수정: 최종 성공 month 기준
+    # =========================
+    final_month = services_data["month"]
 
 
     # =========================
     # CSV 저장
     # =========================
-    filename = f"ism_reports_{pmi_data['month']}_{timestamp}.csv"
+    filename = f"ism_reports_{final_month}_{timestamp}.csv"
 
     with open(filename, "w", newline="", encoding="utf-8-sig") as f:
 
         writer = csv.writer(f)
 
-        # =========================
-        # SERVICES 먼저 출력
-        # =========================
-        writer.writerow(["===== SERVICES REPORT ====="])
-        writer.writerow(["WHAT RESPONDENTS ARE SAYING"])
-
-        for item in services_data["respondents"]:
-            writer.writerow([item])
-
-        writer.writerow([])
-
-        writer.writerow([
-            "Index",
-            "May",
-            "Apr",
-            "Change",
-            "Direction",
-            "Rate",
-            "Trend"
-        ])
-
-        writer.writerows(services_data["table"])
-
-        writer.writerow([])
-        writer.writerow([])
-
-        # =========================
-        # PMI 나중 출력
-        # =========================
+        # PMI
         writer.writerow(["===== PMI REPORT ====="])
         writer.writerow(["WHAT RESPONDENTS ARE SAYING"])
 
@@ -152,13 +128,34 @@ with sync_playwright() as p:
 
         writer.writerows(pmi_data["table"])
 
+        writer.writerow([])
+        writer.writerow([])
+
+        # SERVICES
+        writer.writerow(["===== SERVICES REPORT ====="])
+        writer.writerow(["WHAT RESPONDENTS ARE SAYING"])
+
+        for item in services_data["respondents"]:
+            writer.writerow([item])
+
+        writer.writerow([])
+
+        writer.writerow([
+            "Index",
+            "May",
+            "Apr",
+            "Change",
+            "Direction",
+            "Rate",
+            "Trend"
+        ])
+
+        writer.writerows(services_data["table"])
+
 
     print(f"\nCSV 저장 완료: {filename}")
 
 
-    # =========================
-    # Git push
-    # =========================
     os.system("git config --global user.name 'github-actions'")
     os.system("git config --global user.email 'github-actions@github.com'")
     
