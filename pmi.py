@@ -4,9 +4,6 @@ import csv
 import os
 
 
-# =========================
-# 1. 날짜 세팅
-# =========================
 today = datetime.now()
 
 current_month = today.strftime("%B").lower()
@@ -22,12 +19,8 @@ def make_url(report_type, month):
     return f"https://www.ismworld.org/supply-management-news-and-reports/reports/ism-pmi-reports/{report_type}/{month}/"
 
 
-# =========================
-# 2. 크롤링 시작
-# =========================
 with sync_playwright() as p:
 
-    # ✅ GitHub Actions / server 환경용 수정 (여기만 변경)
     browser = p.chromium.launch(
         headless=True,
         args=["--no-sandbox", "--disable-dev-shm-usage"]
@@ -36,17 +29,13 @@ with sync_playwright() as p:
     page = browser.new_page()
 
 
-    # =====================================================
-    # PMI / SERVICES 공통 함수
-    # =====================================================
     def scrape_report(report_type, month):
 
         url = make_url(report_type, month)
 
         print("접속 URL:", url)
 
-        page.goto(url)
-        page.wait_for_timeout(5000)
+        page.goto(url, wait_until="networkidle")
 
         body_text = page.locator("body").inner_text()
 
@@ -55,20 +44,21 @@ with sync_playwright() as p:
         if "The content you are looking for is no longer available." in body_text:
 
             fallback_month = previous_month
-
             url = make_url(report_type, fallback_month)
 
             print(f"{report_type} {month} 없음 → 지난달 이동:", url)
 
-            page.goto(url)
-            page.wait_for_timeout(5000)
+            page.goto(url, wait_until="networkidle")
 
             used_month = fallback_month
 
-        # respondents
+        # =========================
+        # ⭐ 핵심 수정 (PMI 안정화)
+        # =========================
+        page.wait_for_selector("#respondentsSay + ul li")
+
         li_items = page.locator("#respondentsSay + ul li").all_inner_texts()
 
-        # table
         rows = page.locator(
             "table.table-bordered.table-hover.table-responsive.mb-4 tbody tr"
         )
@@ -86,27 +76,19 @@ with sync_playwright() as p:
         }
 
 
-    # =========================
-    # PMI 먼저 실행
-    # =========================
+    # PMI
     pmi_data = scrape_report("pmi", current_month)
 
-    # ⭐ SERVICES는 PMI에서 결정된 월 그대로 사용
+    # SERVICES
     services_data = scrape_report("services", pmi_data["month"])
 
 
-    # =========================
-    # CSV 저장
-    # =========================
     filename = f"ism_reports_{pmi_data['month']}_{timestamp}.csv"
 
     with open(filename, "w", newline="", encoding="utf-8-sig") as f:
 
         writer = csv.writer(f)
 
-        # =========================
-        # PMI
-        # =========================
         writer.writerow(["===== PMI REPORT ====="])
         writer.writerow(["WHAT RESPONDENTS ARE SAYING"])
 
@@ -116,13 +98,7 @@ with sync_playwright() as p:
         writer.writerow([])
 
         writer.writerow([
-            "Index",
-            "May",
-            "Apr",
-            "Change",
-            "Direction",
-            "Rate",
-            "Trend"
+            "Index", "May", "Apr", "Change", "Direction", "Rate", "Trend"
         ])
 
         writer.writerows(pmi_data["table"])
@@ -130,9 +106,6 @@ with sync_playwright() as p:
         writer.writerow([])
         writer.writerow([])
 
-        # =========================
-        # SERVICES
-        # =========================
         writer.writerow(["===== SERVICES REPORT ====="])
         writer.writerow(["WHAT RESPONDENTS ARE SAYING"])
 
@@ -142,13 +115,7 @@ with sync_playwright() as p:
         writer.writerow([])
 
         writer.writerow([
-            "Index",
-            "May",
-            "Apr",
-            "Change",
-            "Direction",
-            "Rate",
-            "Trend"
+            "Index", "May", "Apr", "Change", "Direction", "Rate", "Trend"
         ])
 
         writer.writerows(services_data["table"])
@@ -156,10 +123,9 @@ with sync_playwright() as p:
 
     print(f"\nCSV 저장 완료: {filename}")
 
-
     os.system("git config --global user.name 'github-actions'")
     os.system("git config --global user.email 'github-actions@github.com'")
-    
+
     os.system("git add .")
     os.system(f"git commit -m 'Add PMI report {timestamp}'")
     os.system("git push")
