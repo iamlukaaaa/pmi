@@ -3,8 +3,8 @@ from datetime import datetime, timedelta
 import csv
 import os
 import json
-import gspread
 
+import gspread
 from google.oauth2.service_account import Credentials
 
 
@@ -23,15 +23,8 @@ previous_month = (
 timestamp = datetime.now().strftime("%Y%m%d_%H%M")
 
 
-
-def make_url(month):
-
-    return (
-        "https://www.ismworld.org/"
-        "supply-management-news-and-reports/"
-        f"reports/ism-pmi-reports/services/{month}/"
-    )
-
+def make_url(report_type, month):
+    return f"https://www.ismworld.org/supply-management-news-and-reports/reports/ism-pmi-reports/{report_type}/{month}/"
 
 
 # =========================
@@ -40,232 +33,157 @@ def make_url(month):
 
 with sync_playwright() as p:
 
-
     browser = p.chromium.launch(
         headless=True,
-        args=[
-            "--no-sandbox",
-            "--disable-dev-shm-usage"
-        ]
+        args=["--no-sandbox", "--disable-dev-shm-usage"]
     )
-
 
     page = browser.new_page()
 
 
-
     # =========================
-    # SERVICES 스크래핑
+    # PMI 스크래핑 함수
     # =========================
+    def scrape_report(report_type, month):
 
-    url = make_url(current_month)
+        url = make_url(report_type, month)
 
-    print("접속 URL:", url)
-
-
-    page.goto(url)
-
-    page.wait_for_timeout(5000)
-
-
-
-    body_text = page.locator("body").inner_text()
-
-
-    used_month = current_month
-
-
-
-    # 현재 월 없으면 지난달
-
-    if "The content you are looking for is no longer available." in body_text:
-
-
-        url = make_url(previous_month)
-
-        print(
-            f"services {current_month} 없음 → 지난달 이동:",
-            url
-        )
-
+        print("접속 URL:", url)
 
         page.goto(url)
-
         page.wait_for_timeout(5000)
 
+        body_text = page.locator("body").inner_text()
 
-        used_month = previous_month
+        used_month = month
 
+        if "The content you are looking for is no longer available." in body_text:
+
+            fallback_month = previous_month
+
+            url = make_url(report_type, fallback_month)
+
+            print(f"{report_type} {month} 없음 → 지난달 이동:", url)
+
+            page.goto(url)
+            page.wait_for_timeout(5000)
+
+            used_month = fallback_month
+
+
+        # respondents
+        li_items = page.locator("#respondentsSay + ul li").all_inner_texts()
+
+
+        # table
+        rows = page.locator(
+            "table.table-bordered.table-hover.table-responsive.mb-4 tbody tr"
+        )
+
+        table_data = []
+
+        for i in range(rows.count()):
+            cells = rows.nth(i).locator("th, td").all_inner_texts()
+            table_data.append(cells)
+
+
+        return {
+            "month": used_month,
+            "respondents": li_items,
+            "table": table_data
+        }
 
 
     # =========================
-    # Respondents
+    # PMI 실행
     # =========================
 
-    li_items = page.locator(
-        "#respondentsSay + ul li"
-    ).all_inner_texts()
-
-
-
-    # =========================
-    # Table
-    # =========================
-
-    rows = page.locator(
-        "table.table-bordered.table-hover.table-responsive.mb-4 tbody tr"
-    )
-
-
-    table_data = []
-
-
-    for i in range(rows.count()):
-
-        cells = rows.nth(i).locator(
-            "th, td"
-        ).all_inner_texts()
-
-
-        table_data.append(cells)
-
+    pmi_data = scrape_report("pmi", current_month)
 
 
     # =========================
     # CSV 저장
     # =========================
 
-    filename = (
-        f"ism_services_{used_month}_{timestamp}.csv"
-    )
+    filename = f"ism_pmi_{pmi_data['month']}_{timestamp}.csv"
 
-
-    with open(
-        filename,
-        "w",
-        newline="",
-        encoding="utf-8-sig"
-    ) as f:
-
+    with open(filename, "w", newline="", encoding="utf-8-sig") as f:
 
         writer = csv.writer(f)
 
+        writer.writerow(["Index", "Value", "Month"])
 
 
-        writer.writerow(
-            ["===== SERVICES REPORT ====="]
-        )
+        for row in pmi_data["table"]:
+
+            if len(row) < 2:
+                continue
+
+            index_name = row[0]
+            value = row[1]
+
+            writer.writerow([
+                index_name,
+                value,
+                pmi_data["month"].capitalize()
+            ])
 
 
-        writer.writerow(
-            ["WHAT RESPONDENTS ARE SAYING"]
-        )
-
-
-        for item in li_items:
-
-            writer.writerow([item])
-
-
-
-        writer.writerow([])
-
-
-
-        writer.writerow(
-            [
-                "Index",
-                "May",
-                "Apr",
-                "Change",
-                "Direction",
-                "Rate",
-                "Trend"
-            ]
-        )
-
-
-
-        writer.writerows(table_data)
-
-
-
-    print(
-        f"\nCSV 저장 완료: {filename}"
-    )
-
+    print(f"\nCSV 저장 완료: {filename}")
 
 
     # =========================
-    # Google Sheets 업로드
+    # Google Sheets 업로드 (누적 방식)
     # =========================
 
+    print("Google Sheets 업로드 시작")
 
-    creds_json = json.loads(
-        os.environ["google"]
-    )
+
+    creds_json = json.loads(os.environ["google"])
 
 
     scope = [
-
         "https://www.googleapis.com/auth/spreadsheets",
-
         "https://www.googleapis.com/auth/drive"
-
     ]
 
 
-
     creds = Credentials.from_service_account_info(
-
         creds_json,
-
         scopes=scope
-
     )
-
 
 
     client = gspread.authorize(creds)
 
 
-
-    # 실제 시트 이름으로 변경
-
-    sheet = client.open(
-        "ISM PMI DATA"
-    ).sheet1
+    # 🔥 스프레드시트 이름 (반드시 실제 이름과 동일)
+    sheet = client.open("지표").worksheet("ISM DATA")
 
 
-
-    with open(
-        filename,
-        "r",
-        encoding="utf-8-sig"
-    ) as f:
+    rows = []
 
 
-        data = list(
-            csv.reader(f)
-        )
+    for row in pmi_data["table"]:
+
+        if len(row) < 2:
+            continue
+
+        index_name = row[0]
+        value = row[1]
+
+        rows.append([
+            index_name,
+            value,
+            pmi_data["month"].capitalize()
+        ])
 
 
-
-    sheet.clear()
-
-
-
-    sheet.update(
-        "A1",
-        data
-    )
+    # 🔥 핵심: 누적 저장 (덮어쓰기 아님)
+    sheet.append_rows(rows, value_input_option="RAW")
 
 
-
-    print(
-        "Google Sheets 업데이트 완료"
-    )
-
+    print("Google Sheets 업데이트 완료")
 
 
     browser.close()
