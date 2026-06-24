@@ -11,36 +11,53 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # =========================
+      # 1. 코드 가져오기
+      # =========================
       - uses: actions/checkout@v4
 
+      # =========================
+      # 2. Python 설치
+      # =========================
       - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
+      # =========================
+      # 3. 의존성 설치
+      # =========================
       - name: Install dependencies
         run: |
           pip install playwright beautifulsoup4
           playwright install --with-deps chromium
 
       # =========================
-      # PMI 실행
+      # 4. PMI 실행
       # =========================
       - name: Run PMI script
         run: python pmi.py
 
       # =========================
-      # SERVICES 실행 (추가)
+      # 5. SERVICES 실행
       # =========================
       - name: Run SERVICES script
         run: python services.py
 
       # =========================
-      # Git commit & push (둘 다 저장 후 1번만)
+      # 6. Git commit (안전 처리)
       # =========================
       - name: Commit CSV files
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@github.com"
+
           git add .
+
+          # 변경 없으면 실패 안 나게 처리
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+
           git commit -m "Add PMI & Services reports"
           git push
