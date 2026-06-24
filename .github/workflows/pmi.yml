@@ -43,10 +43,11 @@ jobs:
       # =========================
       # 5. SERVICES 실행
       # =========================
-      - name: Run SERVICES script
-        env:
-          google: ${{ secrets.google }}
-        run: python services.py
+      
+      # - name: Run SERVICES script
+      #   env:
+      #     google: ${{ secrets.google }}
+      #   run: python services.py
 
       # =========================
       # 6. Commit CSV files
