@@ -23,16 +23,16 @@ previous_month = (
 timestamp = datetime.now().strftime("%Y%m%d_%H%M")
 
 
-def make_url(month):
+def make_url(report_type, month):
     return (
         "https://www.ismworld.org/"
         "supply-management-news-and-reports/"
-        f"reports/ism-pmi-reports/services/{month}/"
+        f"reports/ism-pmi-reports/{report_type}/{month}/"
     )
 
 
 # =========================
-# 2. 크롤링 시작
+# 2. 크롤링 시작 (예전 안정 구조 복원)
 # =========================
 
 with sync_playwright() as p:
@@ -45,13 +45,13 @@ with sync_playwright() as p:
     page = browser.new_page()
 
 
-    # =========================
-    # SERVICES 스크래핑 함수
-    # =========================
+    # =====================================================
+    # SERVICES 스크래핑 (예전 방식 그대로)
+    # =====================================================
 
-    def scrape_report(month):
+    def scrape_report(report_type, month):
 
-        url = make_url(month)
+        url = make_url(report_type, month)
 
         print("접속 URL:", url)
 
@@ -66,9 +66,9 @@ with sync_playwright() as p:
 
             fallback_month = previous_month
 
-            url = make_url(fallback_month)
+            url = make_url(report_type, fallback_month)
 
-            print(f"services {month} 없음 → 지난달 이동:", url)
+            print(f"{report_type} {month} 없음 → 지난달 이동:", url)
 
             page.goto(url)
             page.wait_for_timeout(5000)
@@ -77,16 +77,16 @@ with sync_playwright() as p:
 
 
         # =========================
-        # RESPONDENTS
+        # RESPONDENTS (예전 방식)
         # =========================
 
-        respondents = page.locator(
+        li_items = page.locator(
             "#respondentsSay + ul li"
         ).all_inner_texts()
 
 
         # =========================
-        # TABLE
+        # TABLE (예전 방식)
         # =========================
 
         rows = page.locator(
@@ -102,22 +102,22 @@ with sync_playwright() as p:
 
         return {
             "month": used_month,
-            "respondents": respondents,
+            "respondents": li_items,
             "table": table_data
         }
 
 
     # =========================
-    # 실행
+    # 실행 (SERVICES만)
     # =========================
 
-    services_data = scrape_report(current_month)
+    services_data = scrape_report("services", current_month)
 
     final_month = services_data["month"]
 
 
     # =========================
-    # CSV 저장
+    # CSV 저장 (예전 구조 유지)
     # =========================
 
     filename = f"ism_services_{final_month}_{timestamp}.csv"
@@ -129,29 +129,29 @@ with sync_playwright() as p:
         writer.writerow(["===== SERVICES REPORT ====="])
         writer.writerow(["WHAT RESPONDENTS ARE SAYING"])
 
-        for r in services_data["respondents"]:
-            writer.writerow([r])
+        for item in services_data["respondents"]:
+            writer.writerow([item])
 
         writer.writerow([])
 
-        writer.writerow(["Index", "Value", "Month"])
+        writer.writerow([
+            "Index",
+            "May",
+            "Apr",
+            "Change",
+            "Direction",
+            "Rate",
+            "Trend"
+        ])
 
-        for row in services_data["table"]:
-            if len(row) < 2:
-                continue
-
-            writer.writerow([
-                row[0],
-                row[1],
-                final_month.capitalize()
-            ])
+        writer.writerows(services_data["table"])
 
 
     print(f"\nCSV 저장 완료: {filename}")
 
 
     # =========================
-    # Google Sheets 업로드
+    # Google Sheets 업로드 (유지)
     # =========================
 
     print("Google Sheets 업로드 시작")
@@ -174,7 +174,7 @@ with sync_playwright() as p:
 
 
     # =========================
-    # SHEETS 업로드
+    # SHEETS 업로드 (예전 + 유지)
     # =========================
 
     rows_to_append = []
@@ -182,8 +182,8 @@ with sync_playwright() as p:
     rows_to_append.append(["===== SERVICES ====="])
     rows_to_append.append(["WHAT RESPONDENTS ARE SAYING"])
 
-    for r in services_data["respondents"]:
-        rows_to_append.append([r])
+    for item in services_data["respondents"]:
+        rows_to_append.append([item])
 
     rows_to_append.append([])
 
