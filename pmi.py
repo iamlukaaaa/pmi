@@ -27,7 +27,6 @@ def make_url(report_type, month):
 # =========================
 with sync_playwright() as p:
 
-    # ✅ GitHub Actions / server 환경용 수정 (여기만 변경)
     browser = p.chromium.launch(
         headless=True,
         args=["--no-sandbox", "--disable-dev-shm-usage"]
@@ -87,12 +86,12 @@ with sync_playwright() as p:
 
 
     # =========================
-    # PMI 먼저 실행
+    # ⭐ 변경: SERVICES 먼저 실행
     # =========================
-    pmi_data = scrape_report("pmi", current_month)
+    services_data = scrape_report("services", current_month)
 
-    # ⭐ SERVICES는 PMI에서 결정된 월 그대로 사용
-    services_data = scrape_report("services", pmi_data["month"])
+    # PMI는 SERVICES 기준 month 사용
+    pmi_data = scrape_report("pmi", services_data["month"])
 
 
     # =========================
@@ -105,33 +104,7 @@ with sync_playwright() as p:
         writer = csv.writer(f)
 
         # =========================
-        # PMI
-        # =========================
-        writer.writerow(["===== PMI REPORT ====="])
-        writer.writerow(["WHAT RESPONDENTS ARE SAYING"])
-
-        for item in pmi_data["respondents"]:
-            writer.writerow([item])
-
-        writer.writerow([])
-
-        writer.writerow([
-            "Index",
-            "May",
-            "Apr",
-            "Change",
-            "Direction",
-            "Rate",
-            "Trend"
-        ])
-
-        writer.writerows(pmi_data["table"])
-
-        writer.writerow([])
-        writer.writerow([])
-
-        # =========================
-        # SERVICES
+        # SERVICES 먼저 출력
         # =========================
         writer.writerow(["===== SERVICES REPORT ====="])
         writer.writerow(["WHAT RESPONDENTS ARE SAYING"])
@@ -153,10 +126,39 @@ with sync_playwright() as p:
 
         writer.writerows(services_data["table"])
 
+        writer.writerow([])
+        writer.writerow([])
+
+        # =========================
+        # PMI 나중 출력
+        # =========================
+        writer.writerow(["===== PMI REPORT ====="])
+        writer.writerow(["WHAT RESPONDENTS ARE SAYING"])
+
+        for item in pmi_data["respondents"]:
+            writer.writerow([item])
+
+        writer.writerow([])
+
+        writer.writerow([
+            "Index",
+            "May",
+            "Apr",
+            "Change",
+            "Direction",
+            "Rate",
+            "Trend"
+        ])
+
+        writer.writerows(pmi_data["table"])
+
 
     print(f"\nCSV 저장 완료: {filename}")
 
 
+    # =========================
+    # Git push
+    # =========================
     os.system("git config --global user.name 'github-actions'")
     os.system("git config --global user.email 'github-actions@github.com'")
     
