@@ -1,19 +1,109 @@
 from playwright.sync_api import sync_playwright
-from datetime import datetime
+from datetime import datetime, timedelta
 import csv
 import os
 
 
 # =========================
-# 날짜
+# 날짜 세팅
 # =========================
 today = datetime.now()
+
 current_month = today.strftime("%B").lower()
+
+previous_month = (
+    today.replace(day=1) - timedelta(days=1)
+).strftime("%B").lower()
+
 timestamp = datetime.now().strftime("%Y%m%d_%H%M")
 
 
-def make_url(month):
-    return f"https://www.ismworld.org/supply-management-news-and-reports/reports/ism-pmi-reports/services/{month}/"
+def make_url(report_type, month):
+    return f"https://www.ismworld.org/supply-management-news-and-reports/reports/ism-pmi-reports/{report_type}/{month}/"
+
+
+# =========================
+# 핵심 안정 크롤러
+# =========================
+def scrape_report(page, report_type, month):
+
+    url = make_url(report_type, month)
+
+    print("접속 URL:", url)
+
+    page.goto(url)
+    page.wait_for_timeout(5000)
+
+    body_text = page.locator("body").inner_text()
+
+    used_month = month
+
+    # fallback (지난달)
+    if "The content you are looking for is no longer available." in body_text:
+        fallback_month = previous_month
+
+        url = make_url(report_type, fallback_month)
+
+        print(f"{report_type} {month} 없음 → 지난달 이동:", url)
+
+        page.goto(url)
+        page.wait_for_timeout(5000)
+
+        used_month = fallback_month
+
+    # =========================
+    # RESPONDENTS (핵심 안정 로직)
+    # =========================
+    respondents = page.locator(
+        "text=WHAT RESPONDENTS ARE SAYING"
+    ).evaluate("""
+    (el) => {
+        let results = [];
+
+        // 현재 섹션 이후 모든 element 탐색
+        let current = el.nextElementSibling;
+
+        while (current) {
+
+            // 종료 조건
+            if (current.innerText &&
+                current.innerText.includes("MANUFACTURING AT A GLANCE")) {
+                break;
+            }
+
+            // li 수집
+            let lis = current.querySelectorAll("li");
+            if (lis.length > 0) {
+                lis.forEach(li => {
+                    results.push(li.innerText.trim());
+                });
+            }
+
+            current = current.nextElementSibling;
+        }
+
+        return results;
+    }
+    """)
+
+    # =========================
+    # TABLE
+    # =========================
+    rows = page.locator(
+        "table.table-bordered.table-hover.table-responsive.mb-4 tbody tr"
+    )
+
+    table_data = []
+
+    for i in range(rows.count()):
+        cells = rows.nth(i).locator("th, td").all_inner_texts()
+        table_data.append(cells)
+
+    return {
+        "month": used_month,
+        "respondents": respondents,
+        "table": table_data
+    }
 
 
 # =========================
@@ -28,65 +118,29 @@ with sync_playwright() as p:
 
     page = browser.new_page()
 
-    url = make_url(current_month)
-    print("접속 URL:", url)
+    # PMI
+    pmi_data = scrape_report(page, "pmi", current_month)
 
-    page.goto(url)
-    page.wait_for_timeout(5000)
+    # SERVICES (PMI 기준 월 유지)
+    services_data = scrape_report(page, "services", pmi_data["month"])
 
-    body_text = page.locator("body").inner_text()
-
-    used_month = current_month
-
-    # fallback (없으면 지난달)
-    if "The content you are looking for is no longer available." in body_text:
-        from datetime import timedelta
-
-        previous_month = (
-            datetime.now().replace(day=1) - timedelta(days=1)
-        ).strftime("%B").lower()
-
-        url = make_url(previous_month)
-        print("현재 월 없음 → 지난달 이동:", url)
-
-        page.goto(url)
-        page.wait_for_timeout(5000)
-
-        used_month = previous_month
-
-    # =========================
-    # respondents (Services 전용)
-    # =========================
-    respondents = page.locator(
-        "#respondentsSay + ul li"
-    ).all_inner_texts()
-
-    # =========================
-    # table
-    # =========================
-    rows = page.locator(
-        "table.table-bordered.table-hover.table-responsive.mb-4 tbody tr"
-    )
-
-    table_data = []
-
-    for i in range(rows.count()):
-        cells = rows.nth(i).locator("th, td").all_inner_texts()
-        table_data.append(cells)
 
     # =========================
     # CSV 저장
     # =========================
-    filename = f"ism_services_{used_month}_{timestamp}.csv"
+    filename = f"ism_reports_{pmi_data['month']}_{timestamp}.csv"
 
     with open(filename, "w", newline="", encoding="utf-8-sig") as f:
 
         writer = csv.writer(f)
 
-        writer.writerow(["===== SERVICES REPORT ====="])
+        # =========================
+        # PMI
+        # =========================
+        writer.writerow(["===== PMI REPORT ====="])
         writer.writerow(["WHAT RESPONDENTS ARE SAYING"])
 
-        for item in respondents:
+        for item in pmi_data["respondents"]:
             writer.writerow([item])
 
         writer.writerow([])
@@ -101,15 +155,44 @@ with sync_playwright() as p:
             "Trend"
         ])
 
-        writer.writerows(table_data)
+        writer.writerows(pmi_data["table"])
+
+        writer.writerow([])
+        writer.writerow([])
+
+        # =========================
+        # SERVICES
+        # =========================
+        writer.writerow(["===== SERVICES REPORT ====="])
+        writer.writerow(["WHAT RESPONDENTS ARE SAYING"])
+
+        for item in services_data["respondents"]:
+            writer.writerow([item])
+
+        writer.writerow([])
+
+        writer.writerow([
+            "Index",
+            "May",
+            "Apr",
+            "Change",
+            "Direction",
+            "Rate",
+            "Trend"
+        ])
+
+        writer.writerows(services_data["table"])
+
 
     print(f"\nCSV 저장 완료: {filename}")
 
-    # Git push
+    # =========================
+    # Git push (GitHub Actions용)
+    # =========================
     os.system("git config --global user.name 'github-actions'")
     os.system("git config --global user.email 'github-actions@github.com'")
     os.system("git add .")
-    os.system(f"git commit -m 'Add Services report {timestamp}'")
+    os.system(f"git commit -m 'Add PMI report {timestamp}'")
     os.system("git push")
 
     browser.close()
