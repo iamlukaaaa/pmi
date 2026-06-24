@@ -2,6 +2,9 @@ from playwright.sync_api import sync_playwright
 from datetime import datetime, timedelta
 import csv
 import os
+import json
+import gspread
+from google.oauth2.service_account import Credentials
 
 
 # =========================
@@ -154,6 +157,55 @@ with sync_playwright() as p:
 
 
     print(f"\nCSV 저장 완료: {filename}")
+    
+    
+    # =========================
+    # Google Sheets 업로드
+    # =========================
+    
+    import json
+    import gspread
+    from google.oauth2.service_account import Credentials
+    
+    
+    # GitHub Secret "google" 가져오기
+    creds_json = json.loads(os.environ["google"])
+    
+    
+    scope = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    
+    
+    creds = Credentials.from_service_account_info(
+        creds_json,
+        scopes=scope
+    )
+    
+    
+    client = gspread.authorize(creds)
+    
+    
+    # 실제 구글 스프레드시트 이름 입력
+    sheet = client.open("ISM PMI DATA").sheet1
+    
+    
+    # 방금 만든 CSV 읽기
+    with open(filename, "r", encoding="utf-8-sig") as f:
+        data = list(csv.reader(f))
+    
+    
+    # 기존 내용 삭제 후 새 데이터 입력
+    sheet.clear()
+    
+    sheet.update(
+        "A1",
+        data
+    )
+    
+    
+    print("Google Sheets 업데이트 완료")
 
 
     # =========================
