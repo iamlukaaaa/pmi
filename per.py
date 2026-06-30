@@ -5,82 +5,80 @@ from datetime import datetime
 URL = "https://www.wsj.com/market-data/stocks/peyields?eafs_enabled=false"
 
 
-with sync_playwright() as p:
+def scrape():
 
-    browser = p.chromium.launch(
-        headless=False   # 테스트라 화면 보이게
-    )
+    with sync_playwright() as p:
 
-    page = browser.new_page()
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage"
+            ]
+        )
 
+        page = browser.new_page()
 
-    print("페이지 접속 중...")
-    
-    page.goto(
-        URL,
-        wait_until="networkidle"
-    )
+        print("페이지 접속 중...")
 
-    page.wait_for_timeout(5000)
-
-
-    # =========================
-    # 날짜 확인
-    # =========================
-
-    timestamp = page.locator(
-        "span.WSJBase--card__timestamp--3F2HxyAE"
-    ).inner_text()
+        # =========================
+        # 안정 로딩 (GitHub Actions 대응)
+        # =========================
+        page.goto(URL, timeout=60000)
+        page.wait_for_selector("table", timeout=60000)
+        page.wait_for_timeout(5000)
 
 
-    print("원본 날짜:", timestamp)
+        # =========================
+        # 날짜 추출 (Other Indexes 기준)
+        # =========================
+
+        card = page.locator("div:has(h3:text('Other Indexes'))").first
+
+        timestamp = card.locator(
+            "span.WSJBase--card__timestamp--3F2HxyAE"
+        ).first.inner_text()
+
+        print("원본 날짜:", timestamp)
+
+        date_obj = datetime.strptime(
+            timestamp,
+            "%A, %B %d, %Y"
+        )
+
+        formatted_date = f"{date_obj.year}. {date_obj.month}. {date_obj.day}"
+
+        print("변환 날짜:", formatted_date)
 
 
-    date_obj = datetime.strptime(
-        timestamp,
-        "%A, %B %d, %Y"
-    )
+        # =========================
+        # S&P 500 PER 추출
+        # =========================
+
+        rows = page.locator("table tbody tr")
+
+        per_value = None
+
+        for i in range(rows.count()):
+
+            cells = rows.nth(i).locator("td").all_inner_texts()
+
+            if len(cells) >= 4 and "S&P 500 Index" in cells[0]:
+                per_value = cells[3]
+                break
+
+        print("===================")
+        print("S&P 500 PER:", per_value)
+        print("===================")
+
+        browser.close()
+
+        return formatted_date, per_value
 
 
-    formatted_date = (
-        f"{date_obj.year}. "
-        f"{date_obj.month}. "
-        f"{date_obj.day}"
-    )
+if __name__ == "__main__":
 
+    date, per = scrape()
 
-    print("변환 날짜:", formatted_date)
-
-
-
-    # =========================
-    # 테이블 확인
-    # =========================
-
-    rows = page.locator("table tbody tr")
-
-
-    print("테이블 row 개수:", rows.count())
-
-
-    for i in range(rows.count()):
-
-        cells = rows.nth(i).locator("td").all_inner_texts()
-
-        print(i, cells)
-
-
-        if len(cells) >= 4 and "S&P 500 Index" in cells[0]:
-
-            per = cells[3]
-
-            print("===================")
-            print("S&P 500 Forward P/E:", per)
-            print("===================")
-
-            break
-
-
-    input("종료하려면 Enter")
-
-    browser.close()
+    print("FINAL OUTPUT")
+    print(date, per)
