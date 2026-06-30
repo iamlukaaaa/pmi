@@ -1,0 +1,36 @@
+name: PER
+
+on:
+  schedule:
+    # 매주 일요일 06:00 (Sydney 기준 → UTC 토요일 19:00 또는 20:00)
+    - cron: '0 20 * * 6'
+
+  workflow_dispatch:
+
+
+jobs:
+  run-scraper:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+    - name: Checkout repo
+      uses: actions/checkout@v4
+
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        playwright install chromium
+
+
+    - name: Run script
+      run: |
+        python per.py
