@@ -1,26 +1,23 @@
-name: PER
+name: WSJ PER Scraper
 
 on:
   schedule:
-    # 매주 일요일 06:00 (Sydney 기준 → UTC 토요일 19:00 또는 20:00)
-    - cron: '0 20 * * 6'
+    - cron: '0 20 * * 6'  # Sunday 6am Sydney
 
   workflow_dispatch:
 
 
 jobs:
-  run-scraper:
+  run:
 
     runs-on: ubuntu-latest
 
     steps:
 
-    - name: Checkout repo
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
 
-    - name: Setup Python
-      uses: actions/setup-python@v5
+    - uses: actions/setup-python@v5
       with:
         python-version: "3.11"
 
@@ -32,5 +29,7 @@ jobs:
 
 
     - name: Run script
+      env:
+        google: ${{ secrets.google }}
       run: |
         python per.py
