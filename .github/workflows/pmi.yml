@@ -1,6 +1,8 @@
 name: ISM workflows
 
 on:
+  schedule:
+    - cron: '0 0 8 * *'   # 매월 8일 00:00 UTC
   workflow_dispatch:
 
 permissions:
@@ -11,7 +13,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
       # =========================
       # 1. 코드 가져오기
       # =========================
